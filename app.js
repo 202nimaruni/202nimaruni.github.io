@@ -2115,6 +2115,14 @@ function setGenerated(meta) {
   if (metaEl) metaEl.textContent = meta ?? "";
 }
 
+function setGeneratingOverlay(show, text = "生成中...") {
+  const overlay = document.getElementById("generatingOverlay");
+  if (!overlay) return;
+  const textEl = overlay.querySelector(".generatingOverlay__text");
+  if (textEl) textEl.textContent = text;
+  overlay.hidden = !show;
+}
+
 async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature } = {}) {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
@@ -2290,7 +2298,7 @@ function openWorkspace(markdown) {
 
   const note = document.getElementById("workspaceNote");
   if (note) {
-    note.textContent = `全${workspaceState.sections.length}セクション。修正したい箇所だけ指示を書き、完成稿タブでコピー用テキストを確認できます。`;
+    note.textContent = `全${workspaceState.sections.length}セクション。修正が不要なら「修正なしでこのまま完成」でそのままコピー用原稿にできます。`;
   }
 
   const openBtn = document.getElementById("btnOpenWorkspace");
@@ -2800,6 +2808,7 @@ function init() {
     const d = readForm();
     const promptText = buildPromptText(d);
     setExportNote("AI生成中…（数秒〜）");
+    setGeneratingOverlay(true, "生成中...");
     try {
       const out = await generateJobPostWithAI(promptText, { outputStyle: d.outputStyle });
       generatedText = out;
@@ -2825,6 +2834,8 @@ function init() {
     } catch (e) {
       setExportNote(`生成失敗: ${e?.message || "不明なエラー"}`);
       setTimeout(() => setExportNote(""), 3500);
+    } finally {
+      setGeneratingOverlay(false);
     }
   });
 
@@ -2833,11 +2844,37 @@ function init() {
   $("btnWorkspaceSections")?.addEventListener("click", () => setWorkspaceView("sections"));
   $("btnWorkspaceFinal")?.addEventListener("click", () => setWorkspaceView("final"));
 
+  $("btnWorkspaceFinalizeDirect")?.addEventListener("click", async () => {
+    const d = readForm();
+    workspaceState.finalPasteText = toPasteReadyText(workspaceState.rawMarkdown || generatedText || "");
+    renderWorkspaceFinal();
+    setWorkspaceView("final");
+    generatedText = workspaceState.finalPasteText;
+    generatedAtIso = generatedAtIso || new Date().toISOString();
+    refreshGenerated();
+
+    const saved = {
+      ...d,
+      id: currentId,
+      savedAt: currentSavedAt || nowIso(),
+      updatedAt: nowIso(),
+      generatedText,
+      generatedAt: generatedAtIso,
+      finalPasteText: workspaceState.finalPasteText,
+    };
+    currentSavedAt = saved.savedAt;
+    upsertHistory(saved);
+
+    setExportNote("修正なしで完成稿にしました（そのままコピーできます）");
+    setTimeout(() => setExportNote(""), 2600);
+  });
+
   $("btnWorkspaceRevise")?.addEventListener("click", async () => {
     const d = readForm();
     const btn = $("btnWorkspaceRevise");
     if (btn) btn.disabled = true;
     setExportNote("フィードバックを反映して完成稿を作成中…");
+    setGeneratingOverlay(true, "生成中...");
     try {
       await reviseWorkspaceWithAI(d);
       generatedText = workspaceState.finalPasteText;
@@ -2867,13 +2904,14 @@ function init() {
       setTimeout(() => setExportNote(""), 4000);
     } finally {
       if (btn) btn.disabled = false;
+      setGeneratingOverlay(false);
     }
   });
 
   $("btnWorkspaceCopyFinal")?.addEventListener("click", async () => {
-    const text = workspaceState.finalPasteText?.trim();
+    const text = (workspaceState.finalPasteText || toPasteReadyText(workspaceState.rawMarkdown || generatedText || "")).trim();
     if (!text) {
-      setExportNote("完成稿がありません。先にフィードバックを反映してください");
+      setExportNote("完成稿がありません。まず原稿を生成してください");
       setTimeout(() => setExportNote(""), 2200);
       return;
     }
