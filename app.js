@@ -2115,6 +2115,13 @@ function setGenerated(meta) {
   if (metaEl) metaEl.textContent = meta ?? "";
 }
 
+function setWorkspaceActionNote(msg, tone = "ok") {
+  const el = document.getElementById("workspaceActionNote");
+  if (!el) return;
+  el.textContent = msg ?? "";
+  el.style.color = tone === "error" ? "rgba(248,113,113,0.95)" : "rgba(34,197,94,0.95)";
+}
+
 function setGeneratingOverlay(show, text = "生成中...") {
   const overlay = document.getElementById("generatingOverlay");
   if (!overlay) return;
@@ -2227,10 +2234,25 @@ function isPasteReadyNoiseLine(trimmed) {
 
 function toPasteReadyText(text) {
   const out = [];
+  let splitByHeading = false;
+  let prevBlank = false;
   for (const line of String(text || "").split("\n")) {
     const trimmed = line.trim();
-    if (isPasteReadyNoiseLine(trimmed)) continue;
-    out.push(line);
+    if (!trimmed) {
+      if (out.length && !prevBlank) {
+        out.push("");
+        prevBlank = true;
+      }
+      continue;
+    }
+    if (isPasteReadyNoiseLine(trimmed)) {
+      splitByHeading = out.length > 0;
+      continue;
+    }
+    if (splitByHeading && out.length && out[out.length - 1] !== "") out.push("");
+    out.push(line.trimEnd());
+    splitByHeading = false;
+    prevBlank = false;
   }
   return out
     .join("\n")
@@ -2318,6 +2340,7 @@ function openWorkspace(markdown) {
   if (note) {
     note.textContent = `全${workspaceState.sections.length}セクション。修正が不要なら「修正なしでこのまま完成」でそのままコピー用原稿にできます。`;
   }
+  setWorkspaceActionNote("");
 
   const openBtn = document.getElementById("btnOpenWorkspace");
   if (openBtn) openBtn.hidden = false;
@@ -2906,6 +2929,14 @@ function init() {
 
     setExportNote("修正なしで完成稿にしました（そのままコピーできます）");
     setTimeout(() => setExportNote(""), 2600);
+    setWorkspaceActionNote("完成稿を準備しました。必要なら「完成稿をプレビュー」で全体確認できます。");
+  });
+
+  $("btnWorkspacePreviewFinal")?.addEventListener("click", () => {
+    const text = (workspaceState.finalPasteText || toPasteReadyText(workspaceState.rawMarkdown || generatedText || "")).trim();
+    const pre = document.getElementById("previewFinalText");
+    if (pre) pre.textContent = text || "完成稿がありません。まず原稿を生成してください。";
+    document.getElementById("modalFinalPreview")?.showModal();
   });
 
   $("btnWorkspaceRevise")?.addEventListener("click", async () => {
@@ -2939,9 +2970,11 @@ function init() {
 
       setExportNote("完成稿を生成しました（「完成稿」タブからコピーできます）");
       setTimeout(() => setExportNote(""), 3200);
+      setWorkspaceActionNote("完成稿を更新しました。");
     } catch (e) {
       setExportNote(`反映失敗: ${e?.message || "不明なエラー"}`);
       setTimeout(() => setExportNote(""), 4000);
+      setWorkspaceActionNote(`反映失敗: ${e?.message || "不明なエラー"}`, "error");
     } finally {
       if (btn) btn.disabled = false;
       setGeneratingOverlay(false);
@@ -2954,11 +2987,13 @@ function init() {
     if (!text) {
       setExportNote("完成稿がありません。まず原稿を生成してください");
       setTimeout(() => setExportNote(""), 2200);
+      setWorkspaceActionNote("完成稿がありません。まず原稿を生成してください。", "error");
       return;
     }
     await copyText(text);
     setExportNote("完成稿をコピーしました（見出し記号なし）");
     setTimeout(() => setExportNote(""), 1800);
+    setWorkspaceActionNote("コピー完了しました。");
   });
 
   window.__restoreGenerated = (it) => {
