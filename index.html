@@ -10,7 +10,7 @@
     <link rel="icon" href="./morishy-logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="./morishy-logo.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260603f" />
+    <link rel="stylesheet" href="./styles.css?v=20260604a" />
   </head>
   <body>
     <header class="topbar">
@@ -395,10 +395,12 @@
         </div>
         <div class="workspace__actions">
           <button class="btn btn--ghost" id="btnWorkspaceFinalizeDirect" type="button">修正なしでこのまま完成</button>
+          <button class="btn btn--ghost" id="btnWorkspacePreviewFinal" type="button">完成稿をプレビュー</button>
           <button class="btn btn--primary" id="btnWorkspaceRevise" type="button">フィードバックを反映して完成</button>
           <button class="btn btn--ghost" id="btnWorkspaceCopyFinal" type="button">完成稿をコピー</button>
         </div>
       </div>
+      <div class="workspace__actionNote" id="workspaceActionNote" aria-live="polite"></div>
       <p class="workspace__note" id="workspaceNote">気になるセクションに修正指示を書いて「フィードバックを反映して完成」を押してください。完成稿は見出し記号なしでコピーできます。</p>
       <div class="workspace__body">
         <div id="workspaceSectionsView" class="workspace__sections"></div>
@@ -418,6 +420,18 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260603f" defer></script>
+    <dialog class="modal" id="modalFinalPreview">
+      <form method="dialog" class="modal__card">
+        <div class="modal__header">
+          <div class="modal__title">完成稿プレビュー（全体）</div>
+          <button class="btn btn--ghost" value="cancel" type="submit">閉じる</button>
+        </div>
+        <div class="modal__body">
+          <pre class="workspace__previewText" id="previewFinalText"></pre>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js?v=20260604a" defer></script>
   </body>
 </html>
