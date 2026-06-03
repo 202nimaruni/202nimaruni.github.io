@@ -17,6 +17,11 @@ function $(id) {
   return el;
 }
 
+function bindClick(id, handler) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("click", handler);
+}
+
 function setExportNote(msg) {
   $("exportNote").textContent = msg ?? "";
 }
@@ -2105,16 +2110,21 @@ async function readJsonFile(file) {
   return JSON.parse(text);
 }
 
-function setGenerated(meta, body) {
+function setGenerated(meta) {
   const metaEl = document.getElementById("genMeta");
-  const bodyEl = document.getElementById("genBody");
   if (metaEl) metaEl.textContent = meta ?? "";
-  if (bodyEl) bodyEl.textContent = body ?? "";
 }
 
-async function generateJobPostWithAI(promptText, { outputStyle = "message" } = {}) {
+async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature } = {}) {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
+
+  const temp =
+    typeof temperature === "number"
+      ? temperature
+      : outputStyle === "message"
+        ? 0.72
+        : 0.55;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -2124,7 +2134,7 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message" } = {
     },
     body: JSON.stringify({
       model: "gpt-4.1-mini",
-      temperature: outputStyle === "message" ? 0.72 : 0.55,
+      temperature: temp,
       messages: [{ role: "user", content: promptText }],
     }),
   });
@@ -2132,6 +2142,208 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message" } = {
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content ?? "";
   return String(content || "").trim();
+}
+
+const workspaceState = {
+  rawMarkdown: "",
+  sections: [],
+  finalPasteText: "",
+  view: "sections",
+};
+
+function parseSectionsFromMarkdown(text) {
+  const lines = String(text || "").split("\n");
+  const sections = [];
+  let current = null;
+
+  const flush = () => {
+    if (!current) return;
+    const content = current.lines.join("\n").trim();
+    if (current.title || content) {
+      sections.push({
+        id: current.id,
+        title: current.title || "セクション",
+        content,
+        feedback: "",
+      });
+    }
+    current = null;
+  };
+
+  for (const line of lines) {
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      flush();
+      current = { id: uuid(), title: heading[1].trim(), lines: [] };
+      continue;
+    }
+    if (/^---\s*$/.test(line.trim())) continue;
+    if (!current) current = { id: uuid(), title: "冒頭", lines: [] };
+    current.lines.push(line);
+  }
+  flush();
+
+  if (!sections.length && String(text || "").trim()) {
+    sections.push({ id: uuid(), title: "全文", content: String(text).trim(), feedback: "" });
+  }
+  return sections;
+}
+
+function isPasteReadyNoiseLine(trimmed) {
+  if (!trimmed || trimmed === "---") return true;
+  if (/^#{1,6}\s+/.test(trimmed)) return true;
+  if (/^セクション\s*\d+/i.test(trimmed)) return true;
+  if (/^【[^】]{1,40}】\s*$/.test(trimmed)) return true;
+  if (/^#{0,6}\s*\d+([.\-－の]\d+)*[.\s、:：]/.test(trimmed) && trimmed.length < 120) return true;
+  if (/^\d+([.\-－の]\d+)*[.\s、:：]（[^）]{0,60}）\s*$/.test(trimmed)) return true;
+  return false;
+}
+
+function toPasteReadyText(text) {
+  const out = [];
+  for (const line of String(text || "").split("\n")) {
+    const trimmed = line.trim();
+    if (isPasteReadyNoiseLine(trimmed)) continue;
+    out.push(line);
+  }
+  return out
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function setWorkspaceView(view) {
+  workspaceState.view = view;
+  const sectionsEl = document.getElementById("workspaceSectionsView");
+  const finalEl = document.getElementById("workspaceFinalView");
+  const btnSections = document.getElementById("btnWorkspaceSections");
+  const btnFinal = document.getElementById("btnWorkspaceFinal");
+  if (sectionsEl) sectionsEl.hidden = view !== "sections";
+  if (finalEl) finalEl.hidden = view !== "final";
+  if (btnSections) btnSections.classList.toggle("is-active", view === "sections");
+  if (btnFinal) btnFinal.classList.toggle("is-active", view === "final");
+}
+
+function renderWorkspaceSections() {
+  const root = document.getElementById("workspaceSectionsView");
+  if (!root) return;
+  root.innerHTML = "";
+
+  workspaceState.sections.forEach((sec, idx) => {
+    const card = document.createElement("article");
+    card.className = "workspace__section";
+    card.dataset.sectionId = sec.id;
+
+    const title = document.createElement("div");
+    title.className = "workspace__sectionTitle";
+    title.textContent = `${idx + 1}. ${sec.title}`;
+
+    const body = document.createElement("div");
+    body.className = "workspace__sectionBody";
+    body.textContent = sec.content || "（本文なし）";
+
+    const fbLabel = document.createElement("div");
+    fbLabel.className = "workspace__feedbackLabel";
+    fbLabel.textContent = "修正指示（空欄＝このセクションは現状維持）";
+
+    const fb = document.createElement("textarea");
+    fb.className = "workspace__feedback";
+    fb.placeholder = "例：もっと短く／トーンを柔らかく／数字を入れて／この段落は削除…";
+    fb.value = sec.feedback || "";
+    fb.addEventListener("input", () => {
+      sec.feedback = fb.value;
+    });
+
+    card.appendChild(title);
+    card.appendChild(body);
+    card.appendChild(fbLabel);
+    card.appendChild(fb);
+    root.appendChild(card);
+  });
+}
+
+function renderWorkspaceFinal() {
+  const el = document.getElementById("workspaceFinalText");
+  if (!el) return;
+  el.textContent = workspaceState.finalPasteText || "完成稿がまだありません。セクション別にフィードバックを入れて「フィードバックを反映して完成」を押してください。";
+}
+
+function openWorkspace(markdown) {
+  workspaceState.rawMarkdown = markdown || "";
+  workspaceState.sections = parseSectionsFromMarkdown(workspaceState.rawMarkdown);
+  workspaceState.finalPasteText = toPasteReadyText(workspaceState.rawMarkdown);
+  workspaceState.view = "sections";
+
+  renderWorkspaceSections();
+  renderWorkspaceFinal();
+  setWorkspaceView("sections");
+
+  const ws = document.getElementById("workspace");
+  if (ws) {
+    ws.removeAttribute("hidden");
+    ws.hidden = false;
+    ws.classList.add("is-open");
+  }
+  document.body.classList.add("workspace-open");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const note = document.getElementById("workspaceNote");
+  if (note) {
+    note.textContent = `全${workspaceState.sections.length}セクション。修正したい箇所だけ指示を書き、完成稿タブでコピー用テキストを確認できます。`;
+  }
+
+  const openBtn = document.getElementById("btnOpenWorkspace");
+  if (openBtn) openBtn.hidden = false;
+}
+
+function closeWorkspace() {
+  const ws = document.getElementById("workspace");
+  if (ws) {
+    ws.classList.remove("is-open");
+    ws.hidden = true;
+  }
+  document.body.classList.remove("workspace-open");
+}
+
+async function reviseWorkspaceWithAI(formData) {
+  const blocks = workspaceState.sections
+    .map((sec, i) => {
+      const fb = (sec.feedback || "").trim() || "（なし・現状維持）";
+      return `### セクション${i + 1}: ${sec.title}\n【現在の本文】\n${sec.content}\n\n【修正指示】\n${fb}`;
+    })
+    .join("\n\n");
+
+  const prompt = `あなたはプロの採用コピーライターです。
+以下のセクション別原稿に対する修正指示を反映し、求人媒体（AirWork）にそのまま貼り付けできる完成原稿を作成してください。
+
+【最重要ルール】
+1. 出力はプレーンテキストのみ。# や ## などのMarkdown見出し・区切り線（---）は一切使わない。
+2. 「セクション1」「## 1.」のような管理用ラベルも出力しない。
+3. 修正指示が「なし・現状維持」の部分は、できるだけ原文を活かす。
+4. 修正指示がある部分は、指示どおり書き直す。
+5. 給与・勤務地・勤務時間などの事実は、入力情報の範囲で正確に。推測で数値を作らない。
+6. 読みやすい改行を入れる。箇条書きは「・」を使ってよい。
+7. 応募者が読んで自然な1本の求人文に仕上げる。
+
+【企業・職種】
+企業: ${formData.companyName || "（未入力）"}
+職種: ${formData.jobTitle || "（未入力）"}
+文体: ${formData.styleType || ""}／${formData.styleStrength || ""}
+
+【セクション別原稿と修正指示】
+${blocks}
+
+上記のみをもとに、完成原稿だけを出力してください。`;
+
+  const revised = await generateJobPostWithAI(prompt, {
+    outputStyle: formData.outputStyle || "message",
+    temperature: 0.55,
+  });
+  workspaceState.finalPasteText = toPasteReadyText(revised);
+  workspaceState.rawMarkdown = revised;
+  renderWorkspaceFinal();
+  setWorkspaceView("final");
 }
 
 function toMarkdownFromPreview(d) {
@@ -2171,23 +2383,24 @@ function newDraft() {
   renderPreview(readForm());
 }
 
-function loadDraft(id) {
+function loadDraft(id, { openWorkspaceOnLoad = false } = {}) {
   const it = getHistory().find((x) => x.id === id);
   if (!it) return;
   currentId = it.id;
   currentSavedAt = it.savedAt || it.updatedAt || null;
   writeForm(it);
-  // Restore generated result if present
-  if (typeof it.generatedText === "string") {
-    // These are captured in init() closure variables as well; update DOM directly here.
-    const meta = it.generatedAt ? `生成済み: ${new Date(it.generatedAt).toLocaleString()}` : "生成済み";
-    setGenerated(meta, it.generatedText || "");
-  } else {
-    setGenerated("未生成", "ここに生成結果が表示されます。");
+
+  if (typeof window.__restoreGenerated === "function") {
+    window.__restoreGenerated(it);
   }
+
   renderPreview(readForm());
   setExportNote("履歴から読み込みました。");
   setTimeout(() => setExportNote(""), 1500);
+
+  if (openWorkspaceOnLoad && (it.generatedText || it.finalPasteText)) {
+    openWorkspace(it.generatedText || it.finalPasteText || "");
+  }
 }
 
 function duplicateDraft(id) {
@@ -2574,8 +2787,12 @@ function init() {
   let generatedAtIso = "";
 
   const refreshGenerated = () => {
-    const meta = generatedAtIso ? `生成済み: ${new Date(generatedAtIso).toLocaleString()}` : "未生成";
-    setGenerated(meta, generatedText || "ここに生成結果が表示されます。");
+    const meta = generatedAtIso
+      ? `生成済み: ${new Date(generatedAtIso).toLocaleString()}（全画面で編集できます）`
+      : "未生成（生成後は全画面の編集画面に移動します）";
+    setGenerated(meta);
+    const openBtn = document.getElementById("btnOpenWorkspace");
+    if (openBtn) openBtn.hidden = !generatedText?.trim();
   };
   refreshGenerated();
 
@@ -2601,21 +2818,107 @@ function init() {
       currentSavedAt = saved.savedAt;
       upsertHistory(saved);
 
-      setExportNote("生成完了（履歴にも保存しました）");
-      setTimeout(() => setExportNote(""), 2200);
+      openWorkspace(generatedText);
+
+      setExportNote("生成完了。全画面で原稿を確認・修正できます");
+      setTimeout(() => setExportNote(""), 2800);
     } catch (e) {
       setExportNote(`生成失敗: ${e?.message || "不明なエラー"}`);
       setTimeout(() => setExportNote(""), 3500);
     }
   });
 
-  $("btnCopyGenerated").addEventListener("click", async () => {
-    if (!generatedText) {
+  $("btnWorkspaceBack")?.addEventListener("click", () => closeWorkspace());
+
+  $("btnWorkspaceSections")?.addEventListener("click", () => setWorkspaceView("sections"));
+  $("btnWorkspaceFinal")?.addEventListener("click", () => setWorkspaceView("final"));
+
+  $("btnWorkspaceRevise")?.addEventListener("click", async () => {
+    const d = readForm();
+    const btn = $("btnWorkspaceRevise");
+    if (btn) btn.disabled = true;
+    setExportNote("フィードバックを反映して完成稿を作成中…");
+    try {
+      await reviseWorkspaceWithAI(d);
+      generatedText = workspaceState.finalPasteText;
+      generatedAtIso = new Date().toISOString();
+      refreshGenerated();
+
+      const saved = {
+        ...d,
+        id: currentId,
+        savedAt: currentSavedAt || nowIso(),
+        updatedAt: nowIso(),
+        generatedText,
+        generatedAt: generatedAtIso,
+        finalPasteText: workspaceState.finalPasteText,
+        sectionFeedbacks: workspaceState.sections.map((s) => ({
+          title: s.title,
+          feedback: s.feedback || "",
+        })),
+      };
+      currentSavedAt = saved.savedAt;
+      upsertHistory(saved);
+
+      setExportNote("完成稿を生成しました（「完成稿」タブからコピーできます）");
+      setTimeout(() => setExportNote(""), 3200);
+    } catch (e) {
+      setExportNote(`反映失敗: ${e?.message || "不明なエラー"}`);
+      setTimeout(() => setExportNote(""), 4000);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  $("btnWorkspaceCopyFinal")?.addEventListener("click", async () => {
+    const text = workspaceState.finalPasteText?.trim();
+    if (!text) {
+      setExportNote("完成稿がありません。先にフィードバックを反映してください");
+      setTimeout(() => setExportNote(""), 2200);
+      return;
+    }
+    await copyText(text);
+    setExportNote("完成稿をコピーしました（見出し記号なし）");
+    setTimeout(() => setExportNote(""), 1800);
+  });
+
+  window.__restoreGenerated = (it) => {
+    if (typeof it?.generatedText === "string" && it.generatedText.trim()) {
+      generatedText = it.generatedText;
+      generatedAtIso = it.generatedAt || "";
+      if (it.finalPasteText) workspaceState.finalPasteText = it.finalPasteText;
+      const meta = generatedAtIso
+        ? `生成済み: ${new Date(generatedAtIso).toLocaleString()}`
+        : "生成済み";
+      setGenerated(meta);
+      const openBtn = document.getElementById("btnOpenWorkspace");
+      if (openBtn) openBtn.hidden = false;
+    } else {
+      generatedText = "";
+      generatedAtIso = "";
+      setGenerated("未生成（生成後は全画面の編集画面に移動します）");
+      const openBtn = document.getElementById("btnOpenWorkspace");
+      if (openBtn) openBtn.hidden = true;
+    }
+  };
+
+  bindClick("btnOpenWorkspace", () => {
+    if (!generatedText?.trim()) {
       setExportNote("まだ生成結果がありません");
       setTimeout(() => setExportNote(""), 1500);
       return;
     }
-    await copyText(generatedText);
+    openWorkspace(generatedText);
+  });
+
+  bindClick("btnCopyGenerated", async () => {
+    const text = (workspaceState.finalPasteText || toPasteReadyText(generatedText) || generatedText).trim();
+    if (!text) {
+      setExportNote("まだ生成結果がありません");
+      setTimeout(() => setExportNote(""), 1500);
+      return;
+    }
+    await copyText(text);
   });
 
   // Import from URL / Paste
