@@ -10,7 +10,7 @@
     <link rel="icon" href="./morishy-logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="./morishy-logo.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260603" />
   </head>
   <body>
     <header class="topbar">
@@ -296,11 +296,8 @@
           <section class="preview__block">
             <div class="preview__label">AI生成結果</div>
             <div class="generated">
-              <div class="generated__meta" id="genMeta">未生成</div>
-              <div class="row">
-                <button class="btn btn--ghost" id="btnCopyGenerated" type="button">生成結果をコピー</button>
-              </div>
-              <pre class="generated__body" id="genBody">ここに生成結果が表示されます。</pre>
+              <div class="generated__meta" id="genMeta">未生成（生成後は全画面の編集画面に移動します）</div>
+              <button class="btn btn--ghost" id="btnOpenWorkspace" type="button" hidden>全画面で原稿を開く</button>
             </div>
           </section>
         </div>
@@ -389,6 +386,27 @@
       </form>
     </dialog>
 
-    <script src="./app.js" defer></script>
+    <div id="workspace" class="workspace" hidden>
+      <div class="workspace__bar">
+        <button class="btn btn--ghost" id="btnWorkspaceBack" type="button">← 入力画面に戻る</button>
+        <div class="workspace__modes">
+          <button class="btn btn--ghost workspace__mode is-active" id="btnWorkspaceSections" type="button" data-view="sections">セクション別・修正</button>
+          <button class="btn btn--ghost workspace__mode" id="btnWorkspaceFinal" type="button" data-view="final">完成稿（コピー用）</button>
+        </div>
+        <div class="workspace__actions">
+          <button class="btn btn--primary" id="btnWorkspaceRevise" type="button">フィードバックを反映して完成</button>
+          <button class="btn btn--ghost" id="btnWorkspaceCopyFinal" type="button">完成稿をコピー</button>
+        </div>
+      </div>
+      <p class="workspace__note" id="workspaceNote">気になるセクションに修正指示を書いて「フィードバックを反映して完成」を押してください。完成稿は見出し記号なしでコピーできます。</p>
+      <div class="workspace__body">
+        <div id="workspaceSectionsView" class="workspace__sections"></div>
+        <div id="workspaceFinalView" class="workspace__final" hidden>
+          <pre class="workspace__finalText" id="workspaceFinalText"></pre>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=20260603" defer></script>
   </body>
 </html>
