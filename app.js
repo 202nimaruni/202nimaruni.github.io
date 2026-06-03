@@ -2123,7 +2123,7 @@ function setGeneratingOverlay(show, text = "生成中...") {
   overlay.hidden = !show;
 }
 
-async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature } = {}) {
+async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature, timeoutMs = 90000 } = {}) {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
 
@@ -2134,18 +2134,31 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message", temp
         ? 0.72
         : 0.55;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1-mini",
-      temperature: temp,
-      messages: [{ role: "user", content: promptText }],
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(5000, Number(timeoutMs) || 90000));
+  let res;
+  try {
+    res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: temp,
+        messages: [{ role: "user", content: promptText }],
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      throw new Error("生成がタイムアウトしました。通信環境を確認して再実行してください。");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`OpenAI API error: HTTP ${res.status}`);
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content ?? "";
@@ -2718,6 +2731,8 @@ function initSelectionUi() {
 }
 
 function init() {
+  setGeneratingOverlay(false);
+
   // Tabs
   $("tabBasic").addEventListener("click", () => setActiveTab("tabBasic", "paneBasic"));
   $("tabStyle").addEventListener("click", () => setActiveTab("tabStyle", "paneStyle"));
@@ -2805,6 +2820,8 @@ function init() {
   refreshGenerated();
 
   $("btnGenerateAi").addEventListener("click", async () => {
+    const genBtn = $("btnGenerateAi");
+    genBtn.disabled = true;
     const d = readForm();
     const promptText = buildPromptText(d);
     setExportNote("AI生成中…（数秒〜）");
@@ -2836,6 +2853,7 @@ function init() {
       setTimeout(() => setExportNote(""), 3500);
     } finally {
       setGeneratingOverlay(false);
+      genBtn.disabled = false;
     }
   });
 
