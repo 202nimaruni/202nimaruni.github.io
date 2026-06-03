@@ -567,6 +567,9 @@ body.workspace-open .topbar{
   color: rgba(255,255,255,0.95);
   animation: blinkPulse 1.05s ease-in-out infinite;
 }
+.generatingOverlay__cancel{
+  margin-top: 2px;
+}
 @keyframes blinkPulse{
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.25; transform: scale(0.97); }
