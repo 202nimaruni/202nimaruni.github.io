@@ -394,6 +394,7 @@
           <button class="btn btn--ghost workspace__mode" id="btnWorkspaceFinal" type="button" data-view="final">完成稿（コピー用）</button>
         </div>
         <div class="workspace__actions">
+          <button class="btn btn--ghost" id="btnWorkspaceFinalizeDirect" type="button">修正なしでこのまま完成</button>
           <button class="btn btn--primary" id="btnWorkspaceRevise" type="button">フィードバックを反映して完成</button>
           <button class="btn btn--ghost" id="btnWorkspaceCopyFinal" type="button">完成稿をコピー</button>
         </div>
@@ -407,6 +408,13 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260603" defer></script>
+    <div id="generatingOverlay" class="generatingOverlay" hidden>
+      <div class="generatingOverlay__inner">
+        <img class="generatingOverlay__logo" src="./morishy-logo.png" alt="生成中" />
+        <div class="generatingOverlay__text">生成中...</div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=20260603b" defer></script>
   </body>
 </html>
