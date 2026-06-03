@@ -539,6 +539,9 @@ body.workspace-open .topbar{
   background: rgba(3,8,22,0.82);
   backdrop-filter: blur(2px);
 }
+.generatingOverlay[hidden]{
+  display: none !important;
+}
 .generatingOverlay__panel{
   width: min(430px, calc(100vw - 34px));
   border: 1px solid rgba(255,255,255,0.22);
