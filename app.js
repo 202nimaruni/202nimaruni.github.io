@@ -513,7 +513,7 @@ function readForm() {
   const styleStrength =
     document.querySelector("#styleStrength .segmented__item.is-active")?.dataset?.value ?? "標準";
   const outputStyle =
-    document.querySelector("#outputStyle .segmented__item.is-active")?.dataset?.value ?? "message";
+    document.querySelector("#outputStylePicker .segmented__item.is-active")?.dataset?.value ?? "message";
 
   return {
     id: currentId,
@@ -595,7 +595,7 @@ function writeForm(d) {
 
   setSegmented("#styleType", d.styleType ?? "MVV型");
   setSegmented("#styleStrength", d.styleStrength ?? "標準");
-  setSegmented("#outputStyle", d.outputStyle ?? "message");
+  setSegmented("#outputStylePicker", d.outputStyle ?? "message");
   $("vibeWant").value = d.vibeWant ?? "";
   $("vibeAvoid").value = d.vibeAvoid ?? "";
 
@@ -719,19 +719,25 @@ function setSegmented(rootSelector, value) {
   const root = document.querySelector(rootSelector);
   if (!root) return;
   for (const btn of root.querySelectorAll(".segmented__item")) {
-    btn.classList.toggle("is-active", btn.dataset.value === value);
+    const active = btn.dataset.value === value;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
   }
 }
 
 function bindSegmented(rootSelector, onChange) {
   const root = document.querySelector(rootSelector);
-  if (!root) return;
-  root.addEventListener("click", (e) => {
-    const btn = e.target.closest(".segmented__item");
-    if (!btn) return;
-    setSegmented(rootSelector, btn.dataset.value);
-    onChange(btn.dataset.value);
-  });
+  if (!root || root.dataset.segmentedBound === "1") return;
+  root.dataset.segmentedBound = "1";
+  for (const btn of root.querySelectorAll(".segmented__item")) {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const value = btn.dataset.value;
+      if (!value) return;
+      setSegmented(rootSelector, value);
+      onChange(value);
+    });
+  }
 }
 
 function styleHelp(type) {
@@ -2498,14 +2504,13 @@ function init() {
 
   bindSegmented("#styleType", () => renderPreview(readForm()));
   bindSegmented("#styleStrength", () => renderPreview(readForm()));
-  bindSegmented("#outputStyle", () => {
-    const d = readForm();
+  bindSegmented("#outputStylePicker", (value) => {
     const help = document.getElementById("outputStyleHelp");
     if (help) {
       help.textContent =
-        d.outputStyle === "message"
-          ? "メッセージ型：キャッチ・ミッション・厳しさ/面白さまで含む長文原稿を出力します。"
-          : "AirWork標準：✅訴求・項目別の貼り付け向け構成で出力します。";
+        value === "airwork"
+          ? "AirWork標準：✅訴求・項目別の貼り付け向け構成で出力します。"
+          : "メッセージ型：キャッチ・ミッション・厳しさ/面白さまで含む長文原稿を出力します。";
     }
     renderPreview(readForm());
   });
