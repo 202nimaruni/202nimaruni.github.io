@@ -2181,6 +2181,7 @@ const workspaceState = {
   rawMarkdown: "",
   sections: [],
   finalPasteText: "",
+  finalNotesText: "",
   view: "sections",
 };
 
@@ -2232,11 +2233,36 @@ function isPasteReadyNoiseLine(trimmed) {
   return false;
 }
 
+function splitFinalTextAndNotes(text) {
+  const lines = String(text || "").split("\n");
+  const main = [];
+  const notes = [];
+  let inNotes = false;
+
+  const noteHeadingPatterns = [
+    /^#{1,6}\s*(求人を作成する際に気をつけたポイント|作成時の注意ポイント|注意事項|原稿狙い)\s*[:：]?\s*$/i,
+    /^【\s*(求人を作成する際に気をつけたポイント|作成時の注意ポイント|注意事項|原稿狙い)\s*】\s*$/i,
+    /^(求人を作成する際に気をつけたポイント|作成時の注意ポイント|注意事項|原稿狙い)\s*[:：]?\s*$/i,
+  ];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inNotes && noteHeadingPatterns.some((re) => re.test(trimmed))) {
+      inNotes = true;
+      continue;
+    }
+    if (inNotes) notes.push(line);
+    else main.push(line);
+  }
+  return { mainText: main.join("\n"), notesText: notes.join("\n").trim() };
+}
+
 function toPasteReadyText(text) {
+  const { mainText } = splitFinalTextAndNotes(text);
   const out = [];
   let splitByHeading = false;
   let prevBlank = false;
-  for (const line of String(text || "").split("\n")) {
+  for (const line of String(mainText || "").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) {
       if (out.length && !prevBlank) {
@@ -2313,14 +2339,23 @@ function renderWorkspaceSections() {
 
 function renderWorkspaceFinal() {
   const el = document.getElementById("workspaceFinalText");
+  const noteWrap = document.getElementById("workspaceFinalNotesWrap");
+  const noteText = document.getElementById("workspaceFinalNotesText");
   if (!el) return;
   el.textContent = workspaceState.finalPasteText || "完成稿がまだありません。セクション別にフィードバックを入れて「フィードバックを反映して完成」を押してください。";
+  if (noteWrap && noteText) {
+    const hasNotes = Boolean((workspaceState.finalNotesText || "").trim());
+    noteWrap.hidden = !hasNotes;
+    noteText.textContent = workspaceState.finalNotesText || "";
+  }
 }
 
 function openWorkspace(markdown) {
   workspaceState.rawMarkdown = markdown || "";
   workspaceState.sections = parseSectionsFromMarkdown(workspaceState.rawMarkdown);
-  workspaceState.finalPasteText = toPasteReadyText(workspaceState.rawMarkdown);
+  const split = splitFinalTextAndNotes(workspaceState.rawMarkdown);
+  workspaceState.finalPasteText = toPasteReadyText(split.mainText);
+  workspaceState.finalNotesText = split.notesText;
   workspaceState.view = "sections";
 
   renderWorkspaceSections();
@@ -2390,7 +2425,9 @@ ${blocks}
     temperature: 0.55,
     abortController,
   });
-  workspaceState.finalPasteText = toPasteReadyText(revised);
+  const split = splitFinalTextAndNotes(revised);
+  workspaceState.finalPasteText = toPasteReadyText(split.mainText);
+  workspaceState.finalNotesText = split.notesText;
   workspaceState.rawMarkdown = revised;
   renderWorkspaceFinal();
   setWorkspaceView("final");
@@ -2908,7 +2945,9 @@ function init() {
 
   $("btnWorkspaceFinalizeDirect")?.addEventListener("click", async () => {
     const d = readForm();
-    workspaceState.finalPasteText = toPasteReadyText(workspaceState.rawMarkdown || generatedText || "");
+    const split = splitFinalTextAndNotes(workspaceState.rawMarkdown || generatedText || "");
+    workspaceState.finalPasteText = toPasteReadyText(split.mainText);
+    workspaceState.finalNotesText = split.notesText;
     renderWorkspaceFinal();
     setWorkspaceView("final");
     generatedText = workspaceState.finalPasteText;
