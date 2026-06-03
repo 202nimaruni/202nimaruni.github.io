@@ -213,9 +213,9 @@
 
           <div class="card">
             <div class="card__title">出力スタイル</div>
-            <div class="segmented" id="outputStyle">
-              <button class="segmented__item is-active" data-value="message" type="button">メッセージ型（長文・共感）</button>
-              <button class="segmented__item" data-value="airwork" type="button">AirWork標準</button>
+            <div class="segmented segmented--wrap" id="outputStylePicker" role="tablist" aria-label="出力スタイル">
+              <button class="segmented__item is-active" data-value="message" type="button" role="tab" aria-selected="true">メッセージ型</button>
+              <button class="segmented__item" data-value="airwork" type="button" role="tab" aria-selected="false">AirWork標準</button>
             </div>
             <div class="card__sub" id="outputStyleHelp">メッセージ型は、キャッチ・ミッション・厳しさ/面白さまで含む長文原稿を出力します。</div>
           </div>
