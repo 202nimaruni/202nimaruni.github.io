@@ -296,22 +296,35 @@ body{
   display:flex;
   margin-top: 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 12px;
   overflow: hidden;
   background: rgba(255,255,255,0.03);
+  position: relative;
+  z-index: 1;
+}
+.segmented--wrap{
+  flex-wrap: wrap;
+  gap: 0;
+  overflow: visible;
 }
 .segmented__item{
-  flex:1;
+  flex:1 1 120px;
+  min-width: 0;
   padding: 10px 12px;
   border: 0;
   background: transparent;
   color: var(--muted);
   cursor:pointer;
   font-size: 12px;
+  position: relative;
+  z-index: 2;
+  -webkit-tap-highlight-color: transparent;
 }
 .segmented__item.is-active{
-  background: rgba(6,182,212,0.16);
+  background: rgba(6,182,212,0.22);
   color: var(--text);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(6,182,212,0.45);
 }
 
 .preview{ padding: 12px; }
