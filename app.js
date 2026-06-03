@@ -2123,7 +2123,7 @@ function setGeneratingOverlay(show, text = "生成中...") {
   overlay.hidden = !show;
 }
 
-async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature, timeoutMs = 90000 } = {}) {
+async function generateJobPostWithAI(promptText, { outputStyle = "message", temperature, timeoutMs = 90000, abortController } = {}) {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
 
@@ -2134,8 +2134,12 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message", temp
         ? 0.72
         : 0.55;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(5000, Number(timeoutMs) || 90000));
+  const controller = abortController || new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, Math.max(5000, Number(timeoutMs) || 90000));
   let res;
   try {
     res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -2153,7 +2157,8 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message", temp
     });
   } catch (e) {
     if (e?.name === "AbortError") {
-      throw new Error("生成がタイムアウトしました。通信環境を確認して再実行してください。");
+      if (didTimeout) throw new Error("生成がタイムアウトしました。通信環境を確認して再実行してください。");
+      throw new Error("生成を強制終了しました。");
     }
     throw e;
   } finally {
@@ -2327,7 +2332,7 @@ function closeWorkspace() {
   document.body.classList.remove("workspace-open");
 }
 
-async function reviseWorkspaceWithAI(formData) {
+async function reviseWorkspaceWithAI(formData, abortController) {
   const blocks = workspaceState.sections
     .map((sec, i) => {
       const fb = (sec.feedback || "").trim() || "（なし・現状維持）";
@@ -2360,6 +2365,7 @@ ${blocks}
   const revised = await generateJobPostWithAI(prompt, {
     outputStyle: formData.outputStyle || "message",
     temperature: 0.55,
+    abortController,
   });
   workspaceState.finalPasteText = toPasteReadyText(revised);
   workspaceState.rawMarkdown = revised;
@@ -2732,6 +2738,7 @@ function initSelectionUi() {
 
 function init() {
   setGeneratingOverlay(false);
+  let activeGenerateAbortController = null;
 
   // Tabs
   $("tabBasic").addEventListener("click", () => setActiveTab("tabBasic", "paneBasic"));
@@ -2822,12 +2829,16 @@ function init() {
   $("btnGenerateAi").addEventListener("click", async () => {
     const genBtn = $("btnGenerateAi");
     genBtn.disabled = true;
+    activeGenerateAbortController = new AbortController();
     const d = readForm();
     const promptText = buildPromptText(d);
     setExportNote("AI生成中…（数秒〜）");
     setGeneratingOverlay(true, "生成中...");
     try {
-      const out = await generateJobPostWithAI(promptText, { outputStyle: d.outputStyle });
+      const out = await generateJobPostWithAI(promptText, {
+        outputStyle: d.outputStyle,
+        abortController: activeGenerateAbortController,
+      });
       generatedText = out;
       generatedAtIso = new Date().toISOString();
       refreshGenerated();
@@ -2854,7 +2865,17 @@ function init() {
     } finally {
       setGeneratingOverlay(false);
       genBtn.disabled = false;
+      activeGenerateAbortController = null;
     }
+  });
+
+  $("btnCancelGenerating")?.addEventListener("click", () => {
+    if (activeGenerateAbortController) {
+      activeGenerateAbortController.abort();
+      setExportNote("生成を強制終了しました");
+      setTimeout(() => setExportNote(""), 1800);
+    }
+    setGeneratingOverlay(false);
   });
 
   $("btnWorkspaceBack")?.addEventListener("click", () => closeWorkspace());
@@ -2891,10 +2912,11 @@ function init() {
     const d = readForm();
     const btn = $("btnWorkspaceRevise");
     if (btn) btn.disabled = true;
+    activeGenerateAbortController = new AbortController();
     setExportNote("フィードバックを反映して完成稿を作成中…");
     setGeneratingOverlay(true, "生成中...");
     try {
-      await reviseWorkspaceWithAI(d);
+      await reviseWorkspaceWithAI(d, activeGenerateAbortController);
       generatedText = workspaceState.finalPasteText;
       generatedAtIso = new Date().toISOString();
       refreshGenerated();
@@ -2923,6 +2945,7 @@ function init() {
     } finally {
       if (btn) btn.disabled = false;
       setGeneratingOverlay(false);
+      activeGenerateAbortController = null;
     }
   });
 
