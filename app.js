@@ -1977,6 +1977,15 @@ function downloadText(filename, text) {
   setTimeout(() => setExportNote(""), 2200);
 }
 
+function downloadDataUrl(filename, dataUrl) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function downloadJson(filename, obj) {
   downloadText(filename, JSON.stringify(obj, null, 2));
 }
@@ -2058,8 +2067,109 @@ const workspaceState = {
   sections: [],
   finalPasteText: "",
   finalNotesText: "",
+  thumbnailDataUrl: "",
   view: "sections",
 };
+
+function setThumbNote(msg, tone = "normal") {
+  const el = document.getElementById("thumbNote");
+  if (!el) return;
+  el.textContent = msg ?? "";
+  if (tone === "error") el.style.color = "rgba(248,113,113,0.95)";
+  else if (tone === "ok") el.style.color = "rgba(34,197,94,0.95)";
+  else el.style.color = "var(--muted)";
+}
+
+function renderThumbnailPreview() {
+  const img = document.getElementById("thumbPreview");
+  if (!img) return;
+  const src = String(workspaceState.thumbnailDataUrl || "").trim();
+  if (!src) {
+    img.hidden = true;
+    img.removeAttribute("src");
+    return;
+  }
+  img.src = src;
+  img.hidden = false;
+}
+
+function buildThumbnailPrompt(finalText, formData, extraFeedback = "") {
+  const feedback = String(extraFeedback || "").trim();
+  return `あなたは日本の求人広告クリエイティブデザイナーです。
+求人原稿を読み、求人サムネイル画像を1枚作成してください。
+
+【デザイン方向性（サンプル準拠）】
+- 日本の求人バナー風、明るく視認性の高いデザイン
+- 太めの日本語見出しを大きく配置
+- 条件訴求（給与・休日・未経験歓迎等）を丸や帯のバッジで3〜5個
+- 背景は職種に合う実写風シーン（働く人物）
+- 文字は読みやすさ最優先（高コントラスト、過密にしない）
+
+【禁止】
+- 既存企業ロゴ・他社商標・キャラクターIPの使用
+- 誤解を招く誇張、本文にない条件の創作
+
+【画像仕様】
+- 横長（3:2）
+- 求人サムネイルとしてそのまま使える完成デザイン
+
+【求人情報】
+職種: ${formData.jobTitle || "未入力"}
+会社: ${formData.companyName || "未入力"}
+勤務地: ${formData.workAddress || "未入力"}
+給与: ${formData.salary || "未入力"}
+勤務形態: ${formData.employmentType || "未入力"}
+文体: ${formData.styleType || ""}／${formData.styleStrength || ""}
+
+【完成原稿】
+${finalText}
+
+${feedback ? `【追加フィードバック】\n${feedback}\n` : ""}
+上記を満たす画像を1枚生成してください。`;
+}
+
+async function generateThumbnailWithAI(promptText, { abortController, timeoutMs = 90000 } = {}) {
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
+  const controller = abortController || new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, Math.max(5000, Number(timeoutMs) || 90000));
+  let res;
+  try {
+    res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-image-1",
+        prompt: promptText,
+        size: "1536x1024",
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      if (didTimeout) throw new Error("画像生成がタイムアウトしました。再実行してください。");
+      throw new Error("画像生成を強制終了しました。");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(`画像生成API error: HTTP ${res.status}`);
+  const data = await res.json();
+  const item = Array.isArray(data?.data) ? data.data[0] : null;
+  const b64 = item?.b64_json;
+  const url = item?.url;
+  if (b64) return `data:image/png;base64,${b64}`;
+  if (url) return url;
+  throw new Error("画像生成結果が取得できませんでした。");
+}
 
 function isMetaSectionTitle(title) {
   const t = String(title || "").trim().replace(/^【|】$/g, "");
@@ -2350,6 +2460,7 @@ function renderWorkspaceFinal() {
     noteWrap.hidden = !hasNotes;
     noteText.textContent = workspaceState.finalNotesText || "";
   }
+  renderThumbnailPreview();
 }
 
 function openWorkspace(markdown) {
@@ -2361,6 +2472,7 @@ function openWorkspace(markdown) {
   }));
   workspaceState.finalPasteText = toPasteReadyText(rebuildStructuredText(workspaceState.sections));
   workspaceState.finalNotesText = split.notesText;
+  workspaceState.thumbnailDataUrl = "";
   workspaceState.view = "sections";
 
   renderWorkspaceSections();
@@ -2381,6 +2493,7 @@ function openWorkspace(markdown) {
     note.textContent = `全${workspaceState.sections.length}セクション。修正が不要なら「修正なしでこのまま完成」でそのままコピー用原稿にできます。`;
   }
   setWorkspaceActionNote("");
+  setThumbNote("");
 
   const openBtn = document.getElementById("btnOpenWorkspace");
   if (openBtn) openBtn.hidden = false;
@@ -2472,6 +2585,7 @@ ${JSON.stringify({ sections: sectionPayload }, null, 2)}
   workspaceState.finalNotesText = split.notesText;
   workspaceState.rawMarkdown = rebuilt;
   workspaceState.sections = normalizedSections;
+  workspaceState.thumbnailDataUrl = "";
   renderWorkspaceSections();
   renderWorkspaceFinal();
   setWorkspaceView("final");
@@ -2986,11 +3100,18 @@ function init() {
       activeGenerateAbortController.abort();
       setExportNote("生成を強制終了しました");
       setTimeout(() => setExportNote(""), 1800);
+      setThumbNote("生成を強制終了しました。", "error");
     }
     setGeneratingOverlay(false);
     $("btnGenerateAi").disabled = false;
     const reviseBtn = document.getElementById("btnWorkspaceRevise");
     if (reviseBtn) reviseBtn.disabled = false;
+    const thumbBtn = document.getElementById("btnGenerateThumb");
+    const thumbReBtn = document.getElementById("btnRegenerateThumb");
+    const thumbFb = document.getElementById("thumbFeedback");
+    if (thumbBtn) thumbBtn.disabled = false;
+    if (thumbReBtn) thumbReBtn.disabled = false;
+    if (thumbFb) thumbFb.disabled = false;
   });
 
   $("btnWorkspaceBack")?.addEventListener("click", () => closeWorkspace());
@@ -3003,6 +3124,7 @@ function init() {
     const split = splitFinalTextAndNotes(workspaceState.rawMarkdown || generatedText || "");
     workspaceState.finalPasteText = toPasteReadyText(split.mainText);
     workspaceState.finalNotesText = split.notesText;
+    workspaceState.thumbnailDataUrl = "";
     renderWorkspaceFinal();
     setWorkspaceView("final");
     generatedText = workspaceState.finalPasteText;
@@ -3031,6 +3153,69 @@ function init() {
     const pre = document.getElementById("previewFinalText");
     if (pre) pre.textContent = text || "完成稿がありません。まず原稿を生成してください。";
     document.getElementById("modalFinalPreview")?.showModal();
+  });
+
+  const runThumbnailGeneration = async (extraFeedback = "") => {
+    const d = readForm();
+    const baseText = (workspaceState.finalPasteText || toPasteReadyText(workspaceState.rawMarkdown || generatedText || "")).trim();
+    if (!baseText) {
+      setThumbNote("完成稿がありません。先に原稿を完成させてください。", "error");
+      return;
+    }
+
+    const genBtn = document.getElementById("btnGenerateThumb");
+    const regenBtn = document.getElementById("btnRegenerateThumb");
+    const fb = document.getElementById("thumbFeedback");
+    if (genBtn) genBtn.disabled = true;
+    if (regenBtn) regenBtn.disabled = true;
+    if (fb) fb.disabled = true;
+
+    activeGenerateAbortController = new AbortController();
+    setGeneratingOverlay(true, "画像生成中...");
+    setThumbNote("サムネイルを生成中です…");
+    try {
+      const prompt = buildThumbnailPrompt(baseText, d, extraFeedback);
+      const imageDataUrl = await generateThumbnailWithAI(prompt, {
+        abortController: activeGenerateAbortController,
+        timeoutMs: 120000,
+      });
+      workspaceState.thumbnailDataUrl = imageDataUrl;
+      renderThumbnailPreview();
+      setThumbNote("サムネイル生成が完了しました。", "ok");
+      setWorkspaceActionNote("サムネイルを生成しました。");
+    } catch (e) {
+      setThumbNote(`画像生成失敗: ${e?.message || "不明なエラー"}`, "error");
+      setWorkspaceActionNote(`画像生成失敗: ${e?.message || "不明なエラー"}`, "error");
+    } finally {
+      setGeneratingOverlay(false);
+      activeGenerateAbortController = null;
+      if (genBtn) genBtn.disabled = false;
+      if (regenBtn) regenBtn.disabled = false;
+      if (fb) fb.disabled = false;
+    }
+  };
+
+  $("btnGenerateThumb")?.addEventListener("click", async () => {
+    await runThumbnailGeneration("");
+  });
+
+  $("btnRegenerateThumb")?.addEventListener("click", async () => {
+    const fb = (document.getElementById("thumbFeedback")?.value || "").trim();
+    if (!fb) {
+      setThumbNote("再生成する場合は、フィードバック欄に要望を入力してください。", "error");
+      return;
+    }
+    await runThumbnailGeneration(fb);
+  });
+
+  $("btnDownloadThumb")?.addEventListener("click", () => {
+    const src = String(workspaceState.thumbnailDataUrl || "").trim();
+    if (!src) {
+      setThumbNote("保存する画像がありません。先にサムネイルを生成してください。", "error");
+      return;
+    }
+    downloadDataUrl(`morishy_thumb_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`, src);
+    setThumbNote("画像を保存しました。", "ok");
   });
 
   $("btnWorkspaceRevise")?.addEventListener("click", async () => {
