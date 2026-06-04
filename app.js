@@ -2093,33 +2093,94 @@ function renderThumbnailPreview() {
   img.hidden = false;
 }
 
-async function normalizeImageToFourThree(src) {
+function parseSectionText(fullText, sectionName) {
+  const text = String(fullText || "");
+  const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`【\\s*${escaped}\\s*】([\\s\\S]*?)(?=\\n\\s*【|$)`, "m");
+  const m = text.match(re);
+  return (m?.[1] || "").trim();
+}
+
+function pickBannerTexts(formData, finalText) {
+  const all = String(finalText || "");
+  const jobTitle = (formData.jobTitle || "").trim() || "スタッフ";
+  const catchSec = parseSectionText(all, "求人キャッチコピー");
+  const salarySec = parseSectionText(all, "給与");
+  const holidaySec = parseSectionText(all, "募集要項 - 休暇・休日") || parseSectionText(all, "休暇・休日");
+  const workSec = parseSectionText(all, "勤務時間・曜日");
+
+  const headline = /未経験/.test(all) ? "未経験OK" : "正社員募集";
+  const subline = `${jobTitle}大募集`;
+
+  const salaryBadge =
+    salarySec.match(/(月給[^\n。]{0,18})/)?.[1] ||
+    salarySec.match(/(年収[^\n。]{0,18})/)?.[1] ||
+    "給与は経験を考慮";
+
+  const holidayBadge = /土日祝/.test(holidaySec)
+    ? "土日祝休み"
+    : holidaySec.match(/年(?:間)?休(?:日)?\s*(\d{2,3})\s*日/)?.[0] || "休日制度あり";
+
+  const overtimeBadge =
+    /残業[^。\n]*(ほぼなし|少なめ|ゼロ|なし)/.test(workSec + "\n" + all)
+      ? "残業ほぼゼロ"
+      : "働きやすい環境";
+
+  const bottom = "安心して長く働ける職場環境";
+  const kicker = (catchSec.split(/\n/).find(Boolean) || "").slice(0, 26);
+  return { headline, subline, kicker, badges: [salaryBadge, holidayBadge, overtimeBadge], bottom };
+}
+
+function drawRoundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+function fitContain(sw, sh, dw, dh) {
+  const s = Math.min(dw / sw, dh / sh);
+  return { w: sw * s, h: sh * s };
+}
+
+function drawTextFit(ctx, text, x, y, maxW, maxSize, minSize, weight = 900, color = "#123a7a") {
+  const t = String(text || "").trim() || "求人募集";
+  let size = maxSize;
+  for (; size >= minSize; size -= 2) {
+    ctx.font = `${weight} ${size}px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
+    if (ctx.measureText(t).width <= maxW) break;
+  }
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  ctx.fillText(t, x, y);
+  return { size, width: ctx.measureText(t).width };
+}
+
+async function ensureDataUrl(src) {
+  const s = String(src || "");
+  if (!s) throw new Error("画像ソースが空です");
+  if (s.startsWith("data:")) return s;
+  const res = await fetch(s);
+  if (!res.ok) throw new Error("生成画像の取得に失敗しました");
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ""));
+    fr.onerror = () => reject(new Error("画像変換に失敗しました"));
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function composeRecruitBanner(baseSrc, formData, finalText) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
       const targetW = 1200;
       const targetH = 900; // 4:3
-      const srcW = img.naturalWidth || img.width;
-      const srcH = img.naturalHeight || img.height;
-      const srcRatio = srcW / srcH;
-      const targetRatio = targetW / targetH;
-
-      let sx = 0;
-      let sy = 0;
-      let sw = srcW;
-      let sh = srcH;
-
-      if (srcRatio > targetRatio) {
-        // wider: crop horizontally
-        sw = srcH * targetRatio;
-        sx = Math.max(0, (srcW - sw) / 2);
-      } else if (srcRatio < targetRatio) {
-        // taller: crop vertically
-        sh = srcW / targetRatio;
-        sy = Math.max(0, (srcH - sh) / 2);
-      }
-
       const canvas = document.createElement("canvas");
       canvas.width = targetW;
       canvas.height = targetH;
@@ -2128,11 +2189,54 @@ async function normalizeImageToFourThree(src) {
         reject(new Error("canvas初期化に失敗しました"));
         return;
       }
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+
+      const texts = pickBannerTexts(formData, finalText);
+      const leftW = Math.round(targetW * 0.6);
+      const rightW = targetW - leftW;
+
+      ctx.fillStyle = "#f8fbff";
+      ctx.fillRect(0, 0, targetW, targetH);
+
+      // Right photo area: contain (no hard crop)
+      ctx.fillStyle = "#e9eef6";
+      ctx.fillRect(leftW, 0, rightW, targetH);
+      const sw = img.naturalWidth || img.width;
+      const sh = img.naturalHeight || img.height;
+      const fit = fitContain(sw, sh, rightW, targetH);
+      const px = leftW + (rightW - fit.w) / 2;
+      const py = (targetH - fit.h) / 2;
+      ctx.drawImage(img, 0, 0, sw, sh, px, py, fit.w, fit.h);
+
+      // Left panel typography
+      if (texts.kicker) {
+        drawTextFit(ctx, texts.kicker, 48, 42, leftW - 90, 36, 24, 700, "#3b526e");
+      }
+      drawTextFit(ctx, texts.headline, 48, 120, leftW - 90, 118, 74, 900, "#0f2d66");
+      drawTextFit(ctx, texts.subline, 48, 250, leftW - 90, 74, 42, 800, "#4ea7de");
+
+      // badges
+      const badgeYStart = 380;
+      texts.badges.slice(0, 3).forEach((b, i) => {
+        const y = badgeYStart + i * 108;
+        drawRoundRect(ctx, 48, y, leftW - 96, 80, 22);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = ["#2f9ad8", "#ff9c37", "#2fbf71"][i] || "#2f9ad8";
+        ctx.stroke();
+        drawTextFit(ctx, b, 78, y + 20, leftW - 170, 46, 28, 900, "#18386d");
+      });
+
+      // bottom ribbon
+      const ribbonH = 104;
+      ctx.fillStyle = "#163f87";
+      ctx.fillRect(0, targetH - ribbonH, targetW, ribbonH);
+      drawTextFit(ctx, texts.bottom, 36, targetH - ribbonH + 26, targetW - 72, 46, 30, 900, "#ffffff");
+
       resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = () => reject(new Error("画像の整形に失敗しました"));
-    img.src = src;
+    img.src = baseSrc;
   });
 }
 
@@ -2189,7 +2293,8 @@ ${finalText}
 
 ${feedback ? `【Additional feedback to apply exactly】\n${feedback}\n` : ""}
 Use style cues from prior Japanese recruitment banner samples: strong headline hierarchy, clear badges, high readability, realistic photography.
-Generate the final recruitment banner now.`;
+Generate ONLY the photorealistic background photo area without any text, logo, or typography.
+Do not render any letters at all.`;
 }
 
 async function generateThumbnailWithAI(promptText, { abortController, timeoutMs = 90000 } = {}) {
@@ -3236,14 +3341,15 @@ function init() {
 
     activeGenerateAbortController = new AbortController();
     setGeneratingOverlay(true, "画像生成中...");
-    setThumbNote("サムネイルを生成中です…");
+      setThumbNote("サムネイルを生成中です…（背景生成→文字レイアウト）");
     try {
       const prompt = buildThumbnailPrompt(baseText, d, extraFeedback);
       const rawImageUrl = await generateThumbnailWithAI(prompt, {
         abortController: activeGenerateAbortController,
         timeoutMs: 120000,
       });
-      const imageDataUrl = await normalizeImageToFourThree(rawImageUrl);
+      const baseDataUrl = await ensureDataUrl(rawImageUrl);
+      const imageDataUrl = await composeRecruitBanner(baseDataUrl, d, baseText);
       workspaceState.thumbnailDataUrl = imageDataUrl;
       renderThumbnailPreview();
       setThumbNote("サムネイル生成が完了しました。", "ok");
