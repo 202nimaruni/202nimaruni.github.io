@@ -2191,7 +2191,7 @@ const THUMBNAIL_SYSTEM_DIRECTIVE = `サムネイル生成機能 改修指示書
 背景生成では必ず No text. No typography. No logo. No words. No Japanese characters. を守る。`;
 
 const TEMPLATE_STYLES = {
-  beauty_recruit: { accent: "#d58aa7", accent2: "#f1c9d9", ribbon: "#b56a8f", bg: "#fff8fb", stroke: "#e7b3c8" },
+  beauty_recruit: { accent: "#c46c92", accent2: "#f6dfe9", ribbon: "#c78d55", bg: "#fff7fb", stroke: "#e7c797" },
   sales_recruit: { accent: "#1d4f91", accent2: "#d7e7ff", ribbon: "#153d73", bg: "#f7fbff", stroke: "#99bbe8" },
   driver_recruit: { accent: "#0f4c81", accent2: "#d8edf8", ribbon: "#0c3f68", bg: "#f4fbff", stroke: "#8dbad8" },
   office_recruit: { accent: "#2968a3", accent2: "#e2effb", ribbon: "#1f5487", bg: "#f7fbff", stroke: "#9ec2e6" },
@@ -2202,6 +2202,21 @@ const TEMPLATE_STYLES = {
   care_recruit: { accent: "#4aa96b", accent2: "#dff4e6", ribbon: "#36854f", bg: "#f6fff8", stroke: "#9dd4ad" },
   default: { accent: "#2f9ad8", accent2: "#d8efff", ribbon: "#1f6fa1", bg: "#f7fbff", stroke: "#9ecded" },
 };
+
+function normalizeTemplateType(analysis, composition) {
+  const t = String(composition?.template || analysis?.template_type || "").trim();
+  const text = `${analysis?.industry || ""} ${analysis?.job_type || ""} ${analysis?.visual_direction || ""}`;
+  if (/beauty_recruit|美容|クリニック|美容医療|cosmetic|aesthetic/i.test(`${t} ${text}`)) return "beauty_recruit";
+  if (/nurse_recruit|看護|医療|訪問看護|ナース/i.test(`${t} ${text}`)) return "nurse_recruit";
+  if (/sales_recruit|営業/i.test(`${t} ${text}`)) return "sales_recruit";
+  if (/driver_recruit|運送|ドライバー|配送/i.test(`${t} ${text}`)) return "driver_recruit";
+  if (/office_recruit|事務/i.test(`${t} ${text}`)) return "office_recruit";
+  if (/factory_recruit|製造|工場/i.test(`${t} ${text}`)) return "factory_recruit";
+  if (/engineer_recruit|IT|エンジニア|マーケ/i.test(`${t} ${text}`)) return "engineer_recruit";
+  if (/restaurant_recruit|飲食|接客販売|店舗/i.test(`${t} ${text}`)) return "restaurant_recruit";
+  if (/care_recruit|介護|福祉/i.test(`${t} ${text}`)) return "care_recruit";
+  return t && TEMPLATE_STYLES[t] ? t : "default";
+}
 
 async function callChatJson(prompt, { abortController, timeoutMs = 90000, temperature = 0.2 } = {}) {
   const apiKey = getOpenAIApiKey();
@@ -2290,8 +2305,9 @@ ${JSON.stringify(fallback, null, 2)}
 `;
   const parsed = await callChatJson(prompt, { abortController, temperature: 0.2 });
   const badges = Array.isArray(parsed?.badges) ? parsed.badges.filter(Boolean).slice(0, 4) : [];
+  const template = normalizeTemplateType(analysis, parsed);
   return {
-    template: parsed?.template || analysis?.template_type || "default",
+    template,
     main_copy: String(parsed?.main_copy || fallback.headline || "未経験OK").slice(0, 18),
     sub_copy: String(parsed?.sub_copy || fallback.subline || "スタッフ募集").slice(0, 30),
     badges: badges.length ? badges : fallback.badges.slice(0, 3),
@@ -2300,6 +2316,30 @@ ${JSON.stringify(fallback, null, 2)}
 }
 
 function buildBackgroundPrompt(analysis, composition, variant = 0) {
+  const template = normalizeTemplateType(analysis, composition);
+  if (template === "beauty_recruit") {
+    return `A luxurious Japanese beauty clinic recruitment banner background.
+A clean and elegant cosmetic clinic interior with soft warm lighting, white marble, beige and pink accents, gold details, blurred shelves and reception counter in the background.
+On the right side, a Japanese woman in her late 20s wearing elegant white clinic-style attire, holding a smartphone or tablet, looking down naturally with a soft smile.
+Professional, feminine, premium, clean, bright, warm, beauty medical industry, SNS marketing job atmosphere.
+Leave wide clean space on the left side for Japanese text overlay.
+Soft pink beige and white color palette with subtle gold accents.
+High-end cosmetic clinic advertising style.
+Modern Japanese recruitment banner design.
+Aspect ratio 4:3 or 1200x900.
+Right 40%: person.
+Left 60%: clean empty space.
+Face, hands, smartphone should be naturally visible.
+Background should have elegant blur, not flat background.
+Avoid overexposure.
+No text.
+No typography.
+No logo.
+No words.
+No Japanese characters.
+No signage.
+No banner text.`;
+  }
   const vibe = [
     "bright and trustworthy ad-photo style",
     "premium clean commercial photo style",
@@ -2328,7 +2368,8 @@ function composeBannerWithTemplate(baseImageDataUrl, analysis, composition) {
       const w = 1200;
       const h = 900;
       const leftW = Math.round(w * 0.6);
-      const style = TEMPLATE_STYLES[composition.template] || TEMPLATE_STYLES[analysis?.template_type] || TEMPLATE_STYLES.default;
+      const template = normalizeTemplateType(analysis, composition);
+      const style = TEMPLATE_STYLES[template] || TEMPLATE_STYLES.default;
 
       const canvas = document.createElement("canvas");
       canvas.width = w;
@@ -2338,41 +2379,118 @@ function composeBannerWithTemplate(baseImageDataUrl, analysis, composition) {
         reject(new Error("canvas初期化に失敗しました"));
         return;
       }
-      ctx.fillStyle = style.bg;
-      ctx.fillRect(0, 0, w, h);
-
       const sw = img.naturalWidth || img.width;
       const sh = img.naturalHeight || img.height;
       const rightW = w - leftW;
-      const scale = Math.max(rightW / sw, h / sh);
+      // Background image: cover but with right-anchor for person visibility
+      const scale = Math.max(w / sw, h / sh);
       const dw = sw * scale;
       const dh = sh * scale;
-      const dx = leftW + (rightW - dw) / 2;
+      const dx = w - dw; // anchor to right side
       const dy = (h - dh) / 2;
       ctx.drawImage(img, dx, dy, dw, dh);
 
-      ctx.fillStyle = style.bg;
-      ctx.fillRect(0, 0, leftW, h);
+      if (template === "beauty_recruit") {
+        // Overall pink-beige tint
+        const g0 = ctx.createLinearGradient(0, 0, w, h);
+        g0.addColorStop(0, "rgba(255,248,251,0.62)");
+        g0.addColorStop(0.58, "rgba(255,244,238,0.34)");
+        g0.addColorStop(1, "rgba(255,255,255,0.12)");
+        ctx.fillStyle = g0;
+        ctx.fillRect(0, 0, w, h);
 
-      drawTextFit(ctx, composition.main_copy, 48, 86, leftW - 90, 102, 58, 900, "#173861");
-      drawTextFit(ctx, composition.sub_copy, 52, 214, leftW - 96, 52, 30, 800, style.accent);
-
-      const badges = (composition.badges || []).slice(0, 4);
-      badges.forEach((b, i) => {
-        const y = 330 + i * 92;
-        drawRoundRect(ctx, 48, y, leftW - 96, 66, 18);
-        ctx.fillStyle = "#ffffff";
+        // Left translucent panel
+        const gp = ctx.createLinearGradient(0, 0, leftW, h);
+        gp.addColorStop(0, "rgba(255,255,255,0.92)");
+        gp.addColorStop(1, "rgba(252,233,241,0.70)");
+        ctx.fillStyle = gp;
+        drawRoundRect(ctx, 24, 20, leftW - 34, h - 190, 28);
         ctx.fill();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = i % 2 === 0 ? style.accent : style.stroke;
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(230,192,150,0.65)";
         ctx.stroke();
-        drawTextFit(ctx, b, 72, y + 15, leftW - 150, 40, 24, 900, "#1b3c66");
-      });
 
-      const ribbonH = 96;
-      ctx.fillStyle = style.ribbon;
-      ctx.fillRect(0, h - ribbonH, w, ribbonH);
-      drawTextFit(ctx, composition.bottom_copy, 34, h - ribbonH + 24, w - 70, 44, 28, 900, "#ffffff");
+        // top ribbon
+        drawRoundRect(ctx, 56, 42, 350, 54, 26);
+        ctx.fillStyle = "rgba(255,241,232,0.95)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(200,150,100,0.7)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        drawTextFit(ctx, "美容医療業界で活躍！", 78, 56, 308, 36, 20, 800, "#b56a8f");
+
+        // headline/sub
+        drawTextFit(ctx, composition.main_copy, 56, 126, leftW - 120, 86, 44, 900, "#b04773");
+        drawTextFit(ctx, composition.sub_copy, 58, 220, leftW - 124, 46, 26, 800, "#4d3c3c");
+
+        // subtle gold divider
+        ctx.strokeStyle = "rgba(199,141,85,0.45)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(56, 286);
+        ctx.lineTo(leftW - 76, 286);
+        ctx.stroke();
+
+        const badges = (composition.badges || []).slice(0, 4);
+        badges.forEach((b, i) => {
+          const y = 310 + i * 88;
+          drawRoundRect(ctx, 56, y, leftW - 126, 64, 18);
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(199,141,85,0.62)";
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+
+          // icon-like circle
+          ctx.beginPath();
+          ctx.arc(84, y + 32, 13, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(199,141,85,0.25)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(199,141,85,0.6)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          drawTextFit(ctx, b, 108, y + 16, leftW - 190, 34, 21, 900, "#6a4b42");
+        });
+
+        // bottom CTA ribbon
+        const ribbonH = 104;
+        const gr = ctx.createLinearGradient(0, h - ribbonH, w, h);
+        gr.addColorStop(0, "#d887a9");
+        gr.addColorStop(1, "#c78d55");
+        ctx.fillStyle = gr;
+        drawRoundRect(ctx, 26, h - ribbonH - 8, w - 52, ribbonH, 28);
+        ctx.fill();
+        drawTextFit(ctx, composition.bottom_copy, 52, h - ribbonH + 24, w - 104, 40, 24, 900, "#ffffff");
+
+        // decorative sparkles
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        [ [leftW - 90, 74], [w - 78, 130], [w - 118, 740] ].forEach(([x,y]) => {
+          ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + 12, y + 8, 2.4, 0, Math.PI * 2); ctx.fill();
+        });
+      } else {
+        // default/simple template
+        ctx.fillStyle = style.bg;
+        ctx.fillRect(0, 0, leftW, h);
+        drawTextFit(ctx, composition.main_copy, 48, 86, leftW - 90, 102, 58, 900, "#173861");
+        drawTextFit(ctx, composition.sub_copy, 52, 214, leftW - 96, 52, 30, 800, style.accent);
+        const badges = (composition.badges || []).slice(0, 4);
+        badges.forEach((b, i) => {
+          const y = 330 + i * 92;
+          drawRoundRect(ctx, 48, y, leftW - 96, 66, 18);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = i % 2 === 0 ? style.accent : style.stroke;
+          ctx.stroke();
+          drawTextFit(ctx, b, 72, y + 15, leftW - 150, 40, 24, 900, "#1b3c66");
+        });
+        const ribbonH = 96;
+        ctx.fillStyle = style.ribbon;
+        ctx.fillRect(0, h - ribbonH, w, ribbonH);
+        drawTextFit(ctx, composition.bottom_copy, 34, h - ribbonH + 24, w - 70, 44, 28, 900, "#ffffff");
+      }
 
       resolve(canvas.toDataURL("image/png"));
     };
@@ -2381,8 +2499,20 @@ function composeBannerWithTemplate(baseImageDataUrl, analysis, composition) {
   });
 }
 
-function buildThumbnailPrompt(finalText, formData, extraFeedback = "", variant = 0) {
+function buildThumbnailPrompt(finalText, formData, extraFeedback = "", variant = 0, templateType = "default") {
   const feedback = String(extraFeedback || "").trim();
+  const beautyBlock = templateType === "beauty_recruit"
+    ? `
+美容医療向け背景デザイン指示:
+- ピンクベージュ / 白 / ゴールド基調
+- 美容クリニック受付、カウンセリングルーム、清潔感のあるサロン空間
+- 右40%に人物、左60%は文字用の余白
+- 人物は右端で切れすぎない（顔と上半身を自然に見せる）
+- 背景は適度なボケ感と奥行き
+- 青系を主色にしない
+- 無地・単調な白背景にしない
+`
+    : "";
   return `${THUMBNAIL_SYSTEM_DIRECTIVE}
 背景素材生成専用。文字は絶対に描かない。
 variant=${variant}
@@ -2390,6 +2520,7 @@ variant=${variant}
 勤務地=${formData.workAddress || ""}
 給与=${formData.salary || ""}
 ${feedback ? `追加要望=${feedback}` : ""}
+${beautyBlock}
 
 No text.
 No typography.
@@ -2444,20 +2575,38 @@ async function generateThumbnailWithAI(promptText, { abortController, timeoutMs 
 async function scoreThumbnailCandidate(imageDataUrl, requiredTexts, { timeoutMs = 45000 } = {}) {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) {
-    return { readability: 7, design_quality: 7, text_overlap: false, face_quality: 7, professional_score: 7, score: 70 };
+    return {
+      readability: 7,
+      design_quality: 7,
+      text_overlap: false,
+      face_quality: 7,
+      professional_score: 7,
+      right_crop_risk: false,
+      clinic_background_feel: 7,
+      blue_tone_dominant: false,
+      decorative_richness: 7,
+      luxury_feminine_feel: 7,
+      score: 70,
+    };
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const must = requiredTexts.filter(Boolean).slice(0, 8);
   const prompt = `あなたは求人バナー品質審査員です。
 画像を評価し、JSONで返答してください。必須語句: ${must.join(" / ")}
+特に美容医療系広告としての見栄えを厳しく評価してください。
 評価項目は以下:
 {
 "readability":0-10,
 "design_quality":0-10,
 "text_overlap":true/false,
 "face_quality":0-10,
-"professional_score":0-10
+"professional_score":0-10,
+"right_crop_risk":true/false,
+"clinic_background_feel":0-10,
+"blue_tone_dominant":true/false,
+"decorative_richness":0-10,
+"luxury_feminine_feel":0-10
 }
 JSONのみ返答。`;
   try {
@@ -2491,18 +2640,42 @@ JSONのみ返答。`;
     const designQuality = Number(parsed?.design_quality) || 0;
     const faceQuality = Number(parsed?.face_quality) || 0;
     const professionalScore = Number(parsed?.professional_score) || 0;
+    const clinicBackgroundFeel = Number(parsed?.clinic_background_feel) || 0;
+    const decorativeRichness = Number(parsed?.decorative_richness) || 0;
+    const luxuryFeminineFeel = Number(parsed?.luxury_feminine_feel) || 0;
     const textOverlap = Boolean(parsed?.text_overlap);
-    const score = Math.round(((readability + designQuality + faceQuality + professionalScore) / 4) * 10);
+    const rightCropRisk = Boolean(parsed?.right_crop_risk);
+    const blueToneDominant = Boolean(parsed?.blue_tone_dominant);
+    const baseScore = ((readability + designQuality + faceQuality + professionalScore + clinicBackgroundFeel + decorativeRichness + luxuryFeminineFeel) / 7) * 10;
+    const penalty = (textOverlap ? 10 : 0) + (rightCropRisk ? 8 : 0) + (blueToneDominant ? 8 : 0);
+    const score = Math.max(0, Math.round(baseScore - penalty));
     return {
       readability,
       design_quality: designQuality,
       text_overlap: textOverlap,
       face_quality: faceQuality,
       professional_score: professionalScore,
+      right_crop_risk: rightCropRisk,
+      clinic_background_feel: clinicBackgroundFeel,
+      blue_tone_dominant: blueToneDominant,
+      decorative_richness: decorativeRichness,
+      luxury_feminine_feel: luxuryFeminineFeel,
       score,
     };
   } catch {
-    return { readability: 6, design_quality: 6, text_overlap: false, face_quality: 6, professional_score: 6, score: 60 };
+    return {
+      readability: 6,
+      design_quality: 6,
+      text_overlap: false,
+      face_quality: 6,
+      professional_score: 6,
+      right_crop_risk: false,
+      clinic_background_feel: 6,
+      blue_tone_dominant: false,
+      decorative_richness: 6,
+      luxury_feminine_feel: 6,
+      score: 60,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -3523,7 +3696,7 @@ function init() {
       const initialCandidates = [];
       for (let i = 0; i < 3; i += 1) {
         const bgPrompt = buildBackgroundPrompt(analysis, composition, i);
-        const prompt = `${buildThumbnailPrompt(baseText, d, extraFeedback, i)}\n\n${bgPrompt}`;
+        const prompt = `${buildThumbnailPrompt(baseText, d, extraFeedback, i, composition.template)}\n\n${bgPrompt}`;
         const rawImageUrl = await generateThumbnailWithAI(prompt, {
           abortController: activeGenerateAbortController,
           timeoutMs: 120000,
@@ -3545,14 +3718,19 @@ function init() {
         ? bestFirst.metrics.readability < 8 ||
           bestFirst.metrics.design_quality < 8 ||
           bestFirst.metrics.professional_score < 8 ||
-          bestFirst.metrics.text_overlap === true
+          bestFirst.metrics.clinic_background_feel < 8 ||
+          bestFirst.metrics.decorative_richness < 7 ||
+          bestFirst.metrics.luxury_feminine_feel < 8 ||
+          bestFirst.metrics.text_overlap === true ||
+          bestFirst.metrics.right_crop_risk === true ||
+          bestFirst.metrics.blue_tone_dominant === true
         : false;
 
       if (needRetry) {
         setThumbNote("品質基準未達のため再生成中…");
         for (let i = 0; i < 3; i += 1) {
           const bgPrompt = buildBackgroundPrompt(analysis, composition, i + 10);
-          const prompt = `${buildThumbnailPrompt(baseText, d, `${extraFeedback}\n品質重視で再生成`, i)}\n\n${bgPrompt}`;
+          const prompt = `${buildThumbnailPrompt(baseText, d, `${extraFeedback}\n品質重視で再生成`, i, composition.template)}\n\n${bgPrompt}`;
           const rawImageUrl = await generateThumbnailWithAI(prompt, {
             abortController: activeGenerateAbortController,
             timeoutMs: 120000,
