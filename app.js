@@ -2047,6 +2047,67 @@ const workspaceState = {
   view: "sections",
 };
 
+function shouldFormatAsListSection(title) {
+  const t = String(title || "");
+  return [
+    "社会保険",
+    "待遇・福利厚生",
+    "募集要項 - 待遇・福利厚生",
+    "休暇・休日",
+    "募集要項 - 休暇・休日",
+    "アクセス",
+    "募集要項 - アクセス",
+    "給与の補足",
+    "募集要項 - 給与の補足",
+    "勤務地の補足",
+    "募集要項 - 勤務地の補足",
+  ].some((k) => t.includes(k));
+}
+
+function normalizeSectionContent(title, content) {
+  const text = String(content || "").trim();
+  if (!text) return "";
+  if (!shouldFormatAsListSection(title)) return text;
+
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return "";
+
+  const hasBullet = lines.some((l) => /^[・\-*●◦]/.test(l));
+  if (hasBullet) {
+    return lines.map((l) => l.replace(/^[\-*●◦]\s*/, "・")).join("\n");
+  }
+
+  if (lines.length === 1) {
+    const tokens = lines[0]
+      .split(/\s*[、,，\/／]\s*/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length >= 2) return tokens.map((t) => `・${t}`).join("\n");
+  }
+
+  if (lines.length >= 2) {
+    return lines.map((l) => (l.startsWith("・") ? l : `・${l}`)).join("\n");
+  }
+
+  return text;
+}
+
+function rebuildStructuredText(sections) {
+  return (sections || [])
+    .map((sec) => {
+      const title = sec.title || "セクション";
+      const body = normalizeSectionContent(title, sec.content || "");
+      if (title.startsWith("募集要項 - ")) {
+        return `・${title.replace("募集要項 - ", "").trim()}\n${body}`.trim();
+      }
+      return `【${title}】\n${body}`.trim();
+    })
+    .join("\n\n");
+}
+
 function parseSectionsFromMarkdown(text) {
   const lines = String(text || "").split("\n");
   const sections = [];
@@ -2248,8 +2309,11 @@ function renderWorkspaceFinal() {
 function openWorkspace(markdown) {
   workspaceState.rawMarkdown = markdown || "";
   const split = splitFinalTextAndNotes(workspaceState.rawMarkdown);
-  workspaceState.sections = parseSectionsFromMarkdown(split.mainText);
-  workspaceState.finalPasteText = toPasteReadyText(split.mainText);
+  workspaceState.sections = parseSectionsFromMarkdown(split.mainText).map((sec) => ({
+    ...sec,
+    content: normalizeSectionContent(sec.title, sec.content),
+  }));
+  workspaceState.finalPasteText = toPasteReadyText(rebuildStructuredText(workspaceState.sections));
   workspaceState.finalNotesText = split.notesText;
   workspaceState.view = "sections";
 
@@ -2349,22 +2413,17 @@ ${JSON.stringify({ sections: sectionPayload }, null, 2)}
     return { ...sec, content: nextContent, feedback: "" };
   });
 
-  const rebuilt = updatedSections
-    .map((sec) => {
-      const title = sec.title || "セクション";
-      const body = (sec.content || "").trim();
-      if (title.startsWith("募集要項 - ")) {
-        return `・${title.replace("募集要項 - ", "").trim()}\n${body}`.trim();
-      }
-      return `【${title}】\n${body}`.trim();
-    })
-    .join("\n\n");
+  const normalizedSections = updatedSections.map((sec) => ({
+    ...sec,
+    content: normalizeSectionContent(sec.title, sec.content),
+  }));
+  const rebuilt = rebuildStructuredText(normalizedSections);
 
   const split = splitFinalTextAndNotes(rebuilt);
   workspaceState.finalPasteText = toPasteReadyText(split.mainText);
   workspaceState.finalNotesText = split.notesText;
   workspaceState.rawMarkdown = rebuilt;
-  workspaceState.sections = updatedSections;
+  workspaceState.sections = normalizedSections;
   renderWorkspaceSections();
   renderWorkspaceFinal();
   setWorkspaceView("final");
