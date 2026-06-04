@@ -2068,6 +2068,8 @@ const workspaceState = {
   finalPasteText: "",
   finalNotesText: "",
   thumbnailDataUrl: "",
+  thumbnailCandidates: [],
+  thumbnailSelectedIndex: 0,
   view: "sections",
 };
 
@@ -2082,15 +2084,36 @@ function setThumbNote(msg, tone = "normal") {
 
 function renderThumbnailPreview() {
   const img = document.getElementById("thumbPreview");
+  const gallery = document.getElementById("thumbGallery");
   if (!img) return;
-  const src = String(workspaceState.thumbnailDataUrl || "").trim();
+  const candidates = Array.isArray(workspaceState.thumbnailCandidates) ? workspaceState.thumbnailCandidates : [];
+  const selected = candidates[workspaceState.thumbnailSelectedIndex]?.src || workspaceState.thumbnailDataUrl;
+  const src = String(selected || "").trim();
   if (!src) {
     img.hidden = true;
     img.removeAttribute("src");
+    if (gallery) gallery.innerHTML = "";
     return;
   }
   img.src = src;
   img.hidden = false;
+
+  if (gallery) {
+    gallery.innerHTML = "";
+    candidates.forEach((c, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `workspace__thumbItem${idx === workspaceState.thumbnailSelectedIndex ? " is-active" : ""}`;
+      btn.title = `候補${idx + 1} / スコア${Math.round(c.score || 0)}`;
+      btn.innerHTML = `<img src="${c.src}" alt="候補${idx + 1}" />`;
+      btn.addEventListener("click", () => {
+        workspaceState.thumbnailSelectedIndex = idx;
+        workspaceState.thumbnailDataUrl = c.src;
+        renderThumbnailPreview();
+      });
+      gallery.appendChild(btn);
+    });
+  }
 }
 
 function parseSectionText(fullText, sectionName) {
@@ -2142,24 +2165,6 @@ function drawRoundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function fitContain(sw, sh, dw, dh) {
-  const s = Math.min(dw / sw, dh / sh);
-  return { w: sw * s, h: sh * s };
-}
-
-function drawTextFit(ctx, text, x, y, maxW, maxSize, minSize, weight = 900, color = "#123a7a") {
-  const t = String(text || "").trim() || "求人募集";
-  let size = maxSize;
-  for (; size >= minSize; size -= 2) {
-    ctx.font = `${weight} ${size}px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
-    if (ctx.measureText(t).width <= maxW) break;
-  }
-  ctx.fillStyle = color;
-  ctx.textBaseline = "top";
-  ctx.fillText(t, x, y);
-  return { size, width: ctx.measureText(t).width };
-}
-
 async function ensureDataUrl(src) {
   const s = String(src || "");
   if (!s) throw new Error("画像ソースが空です");
@@ -2175,73 +2180,16 @@ async function ensureDataUrl(src) {
   });
 }
 
-async function composeRecruitBanner(baseSrc, formData, finalText) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const targetW = 1200;
-      const targetH = 900; // 4:3
-      const canvas = document.createElement("canvas");
-      canvas.width = targetW;
-      canvas.height = targetH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("canvas初期化に失敗しました"));
-        return;
-      }
 
-      const texts = pickBannerTexts(formData, finalText);
-      const leftW = Math.round(targetW * 0.6);
-      const rightW = targetW - leftW;
-
-      ctx.fillStyle = "#f8fbff";
-      ctx.fillRect(0, 0, targetW, targetH);
-
-      // Right photo area: contain (no hard crop)
-      ctx.fillStyle = "#e9eef6";
-      ctx.fillRect(leftW, 0, rightW, targetH);
-      const sw = img.naturalWidth || img.width;
-      const sh = img.naturalHeight || img.height;
-      const fit = fitContain(sw, sh, rightW, targetH);
-      const px = leftW + (rightW - fit.w) / 2;
-      const py = (targetH - fit.h) / 2;
-      ctx.drawImage(img, 0, 0, sw, sh, px, py, fit.w, fit.h);
-
-      // Left panel typography
-      if (texts.kicker) {
-        drawTextFit(ctx, texts.kicker, 48, 42, leftW - 90, 36, 24, 700, "#3b526e");
-      }
-      drawTextFit(ctx, texts.headline, 48, 120, leftW - 90, 118, 74, 900, "#0f2d66");
-      drawTextFit(ctx, texts.subline, 48, 250, leftW - 90, 74, 42, 800, "#4ea7de");
-
-      // badges
-      const badgeYStart = 380;
-      texts.badges.slice(0, 3).forEach((b, i) => {
-        const y = badgeYStart + i * 108;
-        drawRoundRect(ctx, 48, y, leftW - 96, 80, 22);
-        ctx.fillStyle = "#ffffff";
-        ctx.fill();
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = ["#2f9ad8", "#ff9c37", "#2fbf71"][i] || "#2f9ad8";
-        ctx.stroke();
-        drawTextFit(ctx, b, 78, y + 20, leftW - 170, 46, 28, 900, "#18386d");
-      });
-
-      // bottom ribbon
-      const ribbonH = 104;
-      ctx.fillStyle = "#163f87";
-      ctx.fillRect(0, targetH - ribbonH, targetW, ribbonH);
-      drawTextFit(ctx, texts.bottom, 36, targetH - ribbonH + 26, targetW - 72, 46, 30, 900, "#ffffff");
-
-      resolve(canvas.toDataURL("image/png"));
-    };
-    img.onerror = () => reject(new Error("画像の整形に失敗しました"));
-    img.src = baseSrc;
-  });
-}
-
-function buildThumbnailPrompt(finalText, formData, extraFeedback = "") {
+function buildThumbnailPrompt(finalText, formData, extraFeedback = "", variant = 0) {
   const feedback = String(extraFeedback || "").trim();
+  const textPreset = pickBannerTexts(formData, finalText);
+  const variants = [
+    "High-end corporate clean style with premium typography balance.",
+    "Bold Japanese recruitment ad style with energetic badge emphasis.",
+    "Soft trustworthy healthcare-style visual tone with clear hierarchy.",
+  ];
+  const variantLine = variants[variant] || variants[0];
   return `Create a highly professional Japanese recruitment advertisement banner.
 The design must be extremely clean, high-contrast, and highly legible, combining graphic design with a photorealistic image.
 
@@ -2258,7 +2206,13 @@ The design must be extremely clean, high-contrast, and highly legible, combining
 【Text Rules (VERY IMPORTANT)】
 - All Japanese text must be valid and readable.
 - No gibberish, no broken characters, no random English words.
-- Use short, bold, high-impact Japanese phrases only based on the job information.
+- Render these Japanese phrases exactly as written (no typo, no substitution):
+  - Main headline: 「${textPreset.headline}」
+  - Sub headline: 「${textPreset.subline}」
+  - Badge 1: 「${textPreset.badges[0]}」
+  - Badge 2: 「${textPreset.badges[1]}」
+  - Badge 3: 「${textPreset.badges[2]}」
+  - Bottom ribbon: 「${textPreset.bottom}」
 - Prefer this text hierarchy:
   1) Top headline: 未経験OK / 正社員募集 / 職種名 など
   2) Sub headline: 仕事内容の価値・魅力
@@ -2293,8 +2247,8 @@ ${finalText}
 
 ${feedback ? `【Additional feedback to apply exactly】\n${feedback}\n` : ""}
 Use style cues from prior Japanese recruitment banner samples: strong headline hierarchy, clear badges, high readability, realistic photography.
-Generate ONLY the photorealistic background photo area without any text, logo, or typography.
-Do not render any letters at all.`;
+Design variant hint: ${variantLine}
+Generate one final complete banner including text.`;
 }
 
 async function generateThumbnailWithAI(promptText, { abortController, timeoutMs = 90000 } = {}) {
@@ -2338,6 +2292,58 @@ async function generateThumbnailWithAI(promptText, { abortController, timeoutMs 
   if (b64) return `data:image/png;base64,${b64}`;
   if (url) return url;
   throw new Error("画像生成結果が取得できませんでした。");
+}
+
+async function scoreThumbnailCandidate(imageDataUrl, requiredTexts, { timeoutMs = 45000 } = {}) {
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) return 50;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const must = requiredTexts.filter(Boolean).slice(0, 8);
+  const prompt = `あなたは求人バナー品質審査員です。
+画像を評価し、JSONで返答してください。
+必須語句: ${must.join(" / ")}
+評価観点:
+- 文字の可読性
+- 文字化けの有無
+- レイアウト品質
+- 求人バナーらしさ
+返答形式: {"score":0-100,"reason":"短く"} のJSONのみ。`;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: imageDataUrl } },
+            ],
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return 50;
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || "";
+    const m = String(content).match(/\{[\s\S]*\}/);
+    const parsed = m ? JSON.parse(m[0]) : JSON.parse(content);
+    const score = Number(parsed?.score);
+    if (Number.isFinite(score)) return Math.max(0, Math.min(100, score));
+    return 50;
+  } catch {
+    return 50;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function isMetaSectionTitle(title) {
@@ -2642,6 +2648,8 @@ function openWorkspace(markdown) {
   workspaceState.finalPasteText = toPasteReadyText(rebuildStructuredText(workspaceState.sections));
   workspaceState.finalNotesText = split.notesText;
   workspaceState.thumbnailDataUrl = "";
+  workspaceState.thumbnailCandidates = [];
+  workspaceState.thumbnailSelectedIndex = 0;
   workspaceState.view = "sections";
 
   renderWorkspaceSections();
@@ -2755,6 +2763,8 @@ ${JSON.stringify({ sections: sectionPayload }, null, 2)}
   workspaceState.rawMarkdown = rebuilt;
   workspaceState.sections = normalizedSections;
   workspaceState.thumbnailDataUrl = "";
+  workspaceState.thumbnailCandidates = [];
+  workspaceState.thumbnailSelectedIndex = 0;
   renderWorkspaceSections();
   renderWorkspaceFinal();
   setWorkspaceView("final");
@@ -3294,6 +3304,8 @@ function init() {
     workspaceState.finalPasteText = toPasteReadyText(split.mainText);
     workspaceState.finalNotesText = split.notesText;
     workspaceState.thumbnailDataUrl = "";
+    workspaceState.thumbnailCandidates = [];
+    workspaceState.thumbnailSelectedIndex = 0;
     renderWorkspaceFinal();
     setWorkspaceView("final");
     generatedText = workspaceState.finalPasteText;
@@ -3343,17 +3355,31 @@ function init() {
     setGeneratingOverlay(true, "画像生成中...");
       setThumbNote("サムネイルを生成中です…（背景生成→文字レイアウト）");
     try {
-      const prompt = buildThumbnailPrompt(baseText, d, extraFeedback);
-      const rawImageUrl = await generateThumbnailWithAI(prompt, {
-        abortController: activeGenerateAbortController,
-        timeoutMs: 120000,
-      });
-      const baseDataUrl = await ensureDataUrl(rawImageUrl);
-      const imageDataUrl = await composeRecruitBanner(baseDataUrl, d, baseText);
-      workspaceState.thumbnailDataUrl = imageDataUrl;
+      const required = pickBannerTexts(d, baseText);
+      const candidates = [];
+      for (let i = 0; i < 3; i += 1) {
+        const prompt = buildThumbnailPrompt(baseText, d, extraFeedback, i);
+        const rawImageUrl = await generateThumbnailWithAI(prompt, {
+          abortController: activeGenerateAbortController,
+          timeoutMs: 120000,
+        });
+        const imageDataUrl = await ensureDataUrl(rawImageUrl);
+        const score = await scoreThumbnailCandidate(imageDataUrl, [
+          required.headline,
+          required.subline,
+          ...required.badges,
+          required.bottom,
+        ]);
+        candidates.push({ src: imageDataUrl, score, variant: i + 1 });
+      }
+      candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+      workspaceState.thumbnailCandidates = candidates;
+      workspaceState.thumbnailSelectedIndex = 0;
+      workspaceState.thumbnailDataUrl = candidates[0]?.src || "";
       renderThumbnailPreview();
-      setThumbNote("サムネイル生成が完了しました。", "ok");
-      setWorkspaceActionNote("サムネイルを生成しました。");
+      const topScore = Math.round(candidates[0]?.score || 0);
+      setThumbNote(`サムネイル生成が完了しました（3案から最良案を選択 / スコア${topScore}）。`, "ok");
+      setWorkspaceActionNote("サムネイルを生成しました。候補をクリックして切り替えできます。");
     } catch (e) {
       setThumbNote(`画像生成失敗: ${e?.message || "不明なエラー"}`, "error");
       setWorkspaceActionNote(`画像生成失敗: ${e?.message || "不明なエラー"}`, "error");
@@ -3380,7 +3406,8 @@ function init() {
   });
 
   $("btnDownloadThumb")?.addEventListener("click", () => {
-    const src = String(workspaceState.thumbnailDataUrl || "").trim();
+    const selected = workspaceState.thumbnailCandidates?.[workspaceState.thumbnailSelectedIndex]?.src;
+    const src = String(selected || workspaceState.thumbnailDataUrl || "").trim();
     if (!src) {
       setThumbNote("保存する画像がありません。先にサムネイルを生成してください。", "error");
       return;
