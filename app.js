@@ -2394,7 +2394,9 @@ async function reviseWorkspaceWithAI(formData, abortController) {
   const blocks = workspaceState.sections
     .map((sec, i) => {
       const fb = (sec.feedback || "").trim() || "（なし・現状維持）";
-      return `### セクション${i + 1}: ${sec.title}\n【現在の本文】\n${sec.content}\n\n【修正指示】\n${fb}`;
+      const current = (sec.content || "").trim() || "（現在空欄）";
+      const hasFeedback = (sec.feedback || "").trim().length > 0;
+      return `### セクション${i + 1}: ${sec.title}\n【現在の本文】\n${current}\n\n【修正指示】\n${fb}\n\n【空欄セクションへの対応】\n${hasFeedback ? "このセクションは追記指示あり。空欄にせず、必ず本文を新規作成すること。" : "追記指示なし。"}`;
     })
     .join("\n\n");
 
@@ -2402,8 +2404,8 @@ async function reviseWorkspaceWithAI(formData, abortController) {
 以下のセクション別原稿に対する修正指示を反映し、求人媒体（AirWork）にそのまま貼り付けできる完成原稿を作成してください。
 
 【最重要ルール】
-1. 出力はプレーンテキストのみ。# や ## などのMarkdown見出し・区切り線（---）は一切使わない。
-2. 「セクション1」「## 1.」のような管理用ラベルも出力しない。
+1. まずは内部整形用として、各セクションを必ず `## セクション番号: タイトル` で出力すること（順番維持）。
+2. 「（現在空欄）」かつ修正指示ありのセクションは、必ず2文以上で本文を新規作成すること。空欄禁止。
 3. 修正指示が「なし・現状維持」の部分は、できるだけ原文を活かす。
 4. 修正指示がある部分は、指示どおり書き直す。
 5. 給与・勤務地・勤務時間などの事実は、入力情報の範囲で正確に。推測で数値を作らない。
@@ -2418,7 +2420,7 @@ async function reviseWorkspaceWithAI(formData, abortController) {
 【セクション別原稿と修正指示】
 ${blocks}
 
-上記のみをもとに、完成原稿だけを出力してください。`;
+上記のみをもとに、完成原稿のみを出力してください。`;
 
   const revised = await generateJobPostWithAI(prompt, {
     outputStyle: formData.outputStyle || "message",
@@ -2429,6 +2431,8 @@ ${blocks}
   workspaceState.finalPasteText = toPasteReadyText(split.mainText);
   workspaceState.finalNotesText = split.notesText;
   workspaceState.rawMarkdown = revised;
+  workspaceState.sections = parseSectionsFromMarkdown(split.mainText).map((sec) => ({ ...sec, feedback: "" }));
+  renderWorkspaceSections();
   renderWorkspaceFinal();
   setWorkspaceView("final");
 }
