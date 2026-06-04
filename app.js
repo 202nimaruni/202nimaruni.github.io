@@ -891,205 +891,67 @@ function buildOutro(d) {
 }
 
 function getOutputFormatBlock(d) {
-  if (d.outputStyle === "airwork") return getAirworkOutputFormatBlock();
-  return getMessageOutputFormatBlock(d);
+  return getStrictJobPostingFormatBlock(d);
 }
 
-function getMessageOutputFormatBlock(d) {
-  const intensity =
-    d.styleStrength === "強め"
-      ? "短文で畳みかける。断定と対比を強めに。読者の感情を揺さぶるが、事実のない誇大は禁止。"
-      : d.styleStrength === "弱め"
-        ? "メッセージ性は保ちつつ、やわらかめの語尾で。"
-        : "メッセージ性と読みやすさのバランス。リズムよく改行する。";
-
+function getStrictJobPostingFormatBlock(d) {
   return `
-# 出力形式（メッセージ型・長文）
+# 出力形式（固定フォーマット）
 
-あなたはプロの採用コピーライターです。
-入力情報と選択した訴求方針をもとに、**メッセージ性の強い長文求人原稿**をMarkdownで作成してください。
-文体: ${d.styleType}／強度: ${d.styleStrength}
-表現の強度: ${intensity}
+あなたはAirWork求人の作成者です。必ず以下の見出しをこの順番で出力してください。
+文体指定: ${d.styleType}／${d.styleStrength}
 
-## 最重要ルール
-1. 給与・勤務地・勤務時間・休日・試用期間などの**条件事実**は、入力情報どおりに記載（推測禁止）。
-2. 入力のない数値・実績・制度は書かない。不明は【要確認】。
-3. 選択されていない安心材料・訴求は使わない。
-4. 仕事内容・ミッション・得られるもの・厳しさ/面白さは、**入力と選択から合理的に言語化してよい**（共感・ストーリー化OK）。
-5. 企業目線の説明だけで終わらせず、求職者の悩み→変化→応募の流れを作る。
+【必須ルール】
+1. 見出しは必ず【】付きで、そのまま出力する。
+2. 事実のない情報を創作しない。未入力は【要確認】。
+3. 「【募集要項】」の中では、下記の小見出し行（・から始まる）を必ず出す。
+4. 末尾に必ず次の文言を入れる: 「この求人は株式会社〇〇の依頼を受けて行う職業紹介のための求人です。」
+5. 禁止表現ルール（属性・年齢・性別・国籍の限定）を遵守した文にする。
 
-## 文体の当て方
-- MVV型: 使命・世界観・共感。短い一行リズムと「だからこそ」を活用。
-- ベンチャー型: 成長・挑戦・成果・市場価値。厳しさも隠さない。
-- プレーン型: メッセージ性は抑えめだが、冒頭の共感と「こんな方へ」は残す。
+【求人キャッチコピー】
+（内容）
 
-## 出力構成（この順番・見出し名を厳守）
+【勤務地】
+・郵便番号
+・都道府県・市区町村・町域
+・丁目・番地・号
+・建物名・階数
 
-# 求人キャッチコピー
-## （メインキャッチ：1行〜2行の力強い見出し）
-（サブコピー：2〜3文。選択ターゲットの悩みと訴求を反映）
+【給与】（固定残業がある場合は、時間と金額を入れてください）
+（内容）
 
-## 代替キャッチコピー
-・（3〜5本。箇条書き。「〜なあなたへ」形式も可）
+【勤務形態】
+（内容）
 
----
+【平均所定労働時間（1か月当たり）】
+（内容）
 
-# 仕事内容
-（導入：会社名・職種・何をする仕事かを明確に）
-（求職者の本音を「」で3〜5行、改行で並べる）
-（この仕事の意義・覚悟が伝わる段落を2〜4つ）
-（「楽な仕事向けではない」等のフィルタリング文＋「本気な方へ」の招待）
+【勤務時間・曜日】
+（内容）
 
----
+【社会保険】
+（内容）
 
-# この仕事のミッション
-（社会・顧客・求職者にとっての意味。なぜこの仕事が重要か）
+【試用期間】
+（内容）
 
----
+【募集要項】
+・仕事内容
+・アピールポイント
+・求める人材
+・休暇・休日
+・勤務地の補足
+・アクセス
+・給与の補足
+・待遇・福利厚生
+・その他
 
-# 具体的な業務内容
-（行動単位の箇条書き 8〜12項目）
-（「紹介するだけではない」等、仕事の深さを伝える締め）
-
----
-
-# この仕事で得られるもの
-## 1. （得られる価値の見出し）
-（3〜6文）
-## 2. （得られる価値の見出し）
-（3〜6文）
-## 3. （得られる価値の見出し）
-（3〜6文）
-## 4. （任意・入力があれば）
-（3〜6文）
-
----
-
-# ${d.companyName || "会社"}について
-（事業内容・規模・文化。入力された事実のみ。求職者メリットに変換）
-
----
-
-# 働く環境
-（チーム・雰囲気・文化。対人関係のスタンス）
-
----
-
-# アピールポイント
-## 1. （魅力見出し）
-（説明）
-## 2. （魅力見出し）
-（説明）
-（必要に応じて3〜5まで）
-
----
-
-# 求める人物像
-（「歓迎します」箇条書き 8〜12）
-（「合わないかもしれません」箇条書き 4〜6）
-
----
-
-# 必須条件
-・（入力ベース）
-
----
-
-# 歓迎条件
-・（入力ベース）
-
----
-
-# 仕事の厳しさ
-（正直に。成果・数字・未熟さとの向き合い。逃げずに成長できる人へ）
-
----
-
-# 仕事の面白さ
-（やりがい・変化・スキルが身につく瞬間）
-
----
-
-# 勤務地
-（住所・アクセスを入力どおり）
-
-## アクセス
-（駅・路線）
-
----
-
-# 勤務時間
-（入力どおり。固定残業の扱いも明記）
-
----
-
-# 給与
-（入力どおり。年収・賞与・昇給も）
-
----
-
-# 休日休暇
-（入力どおり）
-
----
-
-# 待遇・福利厚生
-（入力どおり）
-
----
-
-# 入社後の流れ
-（研修・OJT・早期実務の流れ）
-
----
-
-# 選考で見ていること
-（経歴より伸びしろ・姿勢・価値観）
-
----
-
-# 応募メッセージ
-（共感→覚悟→招待で締める。応募ハードルを下げつつ、本気度は維持）
-
----
-
-## 禁止
-- 根拠のない「業界No.1」「最高」「完全」
-- 入力にない福利・制度の創作
-- AirWork用の✅羅列だけで終わる短文
-
-## 仕上げ
-- 全体で3000〜6000字程度（入力が少ない場合は短くてよい）
-- 1文を長くしすぎず、スマホで読める改行を入れる
+上記フォーマットを厳守して、項目名つきで完成原稿を出力してください。
 `;
 }
 
 function getAirworkOutputFormatBlock() {
-  return `
-# 出力形式（AirWork標準）
-
-以下の順番で、AirWorkに貼れる構成で出力してください。
-
-## 1. 求人キャッチコピー
-【推奨キャッチコピー】1本
-【代替キャッチコピー】2本
-
-## 2. お仕事について／仕事内容
-- 冒頭コピー（悩み代弁）
-- 求人point（✅ 6〜8個、選択事実のみ）
-- 本音代弁段落
-- この仕事ならどう変わるか
-- 会社概要
-- 業務内容（ステップ形式推奨）
-- この仕事ならではの働きがい（3つ）
-- 未経験者・経験者への安心材料
-- こんな方におすすめ
-- 応募導線
-
-## 3〜12. 求める人材、スキル、勤務地、給与、勤務時間、休日、待遇、選考、写真、原稿狙い
-
-事実のない補完は禁止。不明は【要確認】。
-`;
+  return getStrictJobPostingFormatBlock({ styleType: "プレーン型", styleStrength: "標準" });
 }
 
 function buildPromptText(d) {
@@ -2189,6 +2051,18 @@ function parseSectionsFromMarkdown(text) {
   const lines = String(text || "").split("\n");
   const sections = [];
   let current = null;
+  let insideRequirements = false;
+  const requirementSubs = new Set([
+    "仕事内容",
+    "アピールポイント",
+    "求める人材",
+    "休暇・休日",
+    "勤務地の補足",
+    "アクセス",
+    "給与の補足",
+    "待遇・福利厚生",
+    "その他",
+  ]);
 
   const flush = () => {
     if (!current) return;
@@ -2205,12 +2079,29 @@ function parseSectionsFromMarkdown(text) {
   };
 
   for (const line of lines) {
+    const bracketHeading = line.match(/^【\s*([^】]+)\s*】\s*$/);
+    if (bracketHeading) {
+      flush();
+      const headingText = bracketHeading[1].trim();
+      insideRequirements = headingText === "募集要項";
+      current = { id: uuid(), title: headingText || "セクション", lines: [] };
+      continue;
+    }
+
     const heading = line.match(/^#{1,6}\s+(.+)$/);
     if (heading) {
       flush();
       current = { id: uuid(), title: heading[1].trim(), lines: [] };
       continue;
     }
+
+    const bulletSub = line.match(/^・\s*([^：\n]+)\s*$/);
+    if (insideRequirements && bulletSub && requirementSubs.has(bulletSub[1].trim())) {
+      flush();
+      current = { id: uuid(), title: `募集要項 - ${bulletSub[1].trim()}`, lines: [] };
+      continue;
+    }
+
     if (/^---\s*$/.test(line.trim())) continue;
     if (!current) current = { id: uuid(), title: "冒頭", lines: [] };
     current.lines.push(line);
@@ -2227,7 +2118,6 @@ function isPasteReadyNoiseLine(trimmed) {
   if (!trimmed || trimmed === "---") return true;
   if (/^#{1,6}\s+/.test(trimmed)) return true;
   if (/^セクション\s*\d+/i.test(trimmed)) return true;
-  if (/^【[^】]{1,40}】\s*$/.test(trimmed)) return true;
   if (/^#{0,6}\s*\d+([.\-－の]\d+)*[.\s、:：]/.test(trimmed) && trimmed.length < 120) return true;
   if (/^\d+([.\-－の]\d+)*[.\s、:：]（[^）]{0,60}）\s*$/.test(trimmed)) return true;
   return false;
@@ -2403,11 +2293,13 @@ async function reviseWorkspaceWithAI(formData, abortController) {
 
 【重要ルール】
 - 出力はJSONのみ。前置き・説明文・Markdownは禁止。
-- JSON形式は {"sections":[{"index":1,"content":"..."}, ...]} とする。
+- JSON形式は {"sections":[{"index":1,"title":"...","content":"..."}, ...]} とする。
 - indexは入力と同じ順番・同じ件数で必ず返す。
+- titleは入力のtitleをそのまま返す。
 - feedbackが空なら currentContent をできるだけ維持する。
 - currentContentが空欄で feedback がある場合、必ず2文以上で新規作成する（空欄禁止）。
 - 事実情報（給与/勤務地/勤務時間など）は入力範囲から逸脱しない。
+- 「募集要項 - X」セクションは、見出し抜きの本文だけをcontentに返す。
 
 【企業・職種】
 企業: ${formData.companyName || "（未入力）"}
@@ -2456,7 +2348,10 @@ ${JSON.stringify({ sections: sectionPayload }, null, 2)}
     .map((sec) => {
       const title = sec.title || "セクション";
       const body = (sec.content || "").trim();
-      return `## ${title}\n${body}`.trim();
+      if (title.startsWith("募集要項 - ")) {
+        return `・${title.replace("募集要項 - ", "").trim()}\n${body}`.trim();
+      }
+      return `【${title}】\n${body}`.trim();
     })
     .join("\n\n");
 
