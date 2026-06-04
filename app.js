@@ -2391,47 +2391,80 @@ function closeWorkspace() {
 }
 
 async function reviseWorkspaceWithAI(formData, abortController) {
-  const blocks = workspaceState.sections
-    .map((sec, i) => {
-      const fb = (sec.feedback || "").trim() || "（なし・現状維持）";
-      const current = (sec.content || "").trim() || "（現在空欄）";
-      const hasFeedback = (sec.feedback || "").trim().length > 0;
-      return `### セクション${i + 1}: ${sec.title}\n【現在の本文】\n${current}\n\n【修正指示】\n${fb}\n\n【空欄セクションへの対応】\n${hasFeedback ? "このセクションは追記指示あり。空欄にせず、必ず本文を新規作成すること。" : "追記指示なし。"}`;
-    })
-    .join("\n\n");
+  const sectionPayload = workspaceState.sections.map((sec, i) => ({
+    index: i + 1,
+    title: sec.title || `セクション${i + 1}`,
+    currentContent: (sec.content || "").trim(),
+    feedback: (sec.feedback || "").trim(),
+  }));
 
   const prompt = `あなたはプロの採用コピーライターです。
-以下のセクション別原稿に対する修正指示を反映し、求人媒体（AirWork）にそのまま貼り付けできる完成原稿を作成してください。
+セクションごとの修正結果をJSONで返してください。
 
-【最重要ルール】
-1. まずは内部整形用として、各セクションを必ず `## セクション番号: タイトル` で出力すること（順番維持）。
-2. 「（現在空欄）」かつ修正指示ありのセクションは、必ず2文以上で本文を新規作成すること。空欄禁止。
-3. 修正指示が「なし・現状維持」の部分は、できるだけ原文を活かす。
-4. 修正指示がある部分は、指示どおり書き直す。
-5. 給与・勤務地・勤務時間などの事実は、入力情報の範囲で正確に。推測で数値を作らない。
-6. 読みやすい改行を入れる。箇条書きは「・」を使ってよい。
-7. 応募者が読んで自然な1本の求人文に仕上げる。
+【重要ルール】
+- 出力はJSONのみ。前置き・説明文・Markdownは禁止。
+- JSON形式は {"sections":[{"index":1,"content":"..."}, ...]} とする。
+- indexは入力と同じ順番・同じ件数で必ず返す。
+- feedbackが空なら currentContent をできるだけ維持する。
+- currentContentが空欄で feedback がある場合、必ず2文以上で新規作成する（空欄禁止）。
+- 事実情報（給与/勤務地/勤務時間など）は入力範囲から逸脱しない。
 
 【企業・職種】
 企業: ${formData.companyName || "（未入力）"}
 職種: ${formData.jobTitle || "（未入力）"}
 文体: ${formData.styleType || ""}／${formData.styleStrength || ""}
 
-【セクション別原稿と修正指示】
-${blocks}
-
-上記のみをもとに、完成原稿のみを出力してください。`;
+【入力JSON】
+${JSON.stringify({ sections: sectionPayload }, null, 2)}
+`;
 
   const revised = await generateJobPostWithAI(prompt, {
     outputStyle: formData.outputStyle || "message",
-    temperature: 0.55,
+    temperature: 0.4,
     abortController,
   });
-  const split = splitFinalTextAndNotes(revised);
+
+  const normalized = String(revised || "").trim();
+  const fenced = normalized.match(/```json\s*([\s\S]*?)```/i) || normalized.match(/```\s*([\s\S]*?)```/i);
+  const jsonSource = fenced?.[1] || normalized;
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonSource);
+  } catch {
+    const start = jsonSource.indexOf("{");
+    const end = jsonSource.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      parsed = JSON.parse(jsonSource.slice(start, end + 1));
+    } else {
+      throw new Error("フィードバック反映の解析に失敗しました。もう一度お試しください。");
+    }
+  }
+
+  const generatedSections = Array.isArray(parsed?.sections) ? parsed.sections : [];
+  const byIndex = new Map(generatedSections.map((s) => [Number(s?.index), String(s?.content || "").trim()]));
+
+  const updatedSections = workspaceState.sections.map((sec, i) => {
+    const feedback = (sec.feedback || "").trim();
+    const current = (sec.content || "").trim();
+    const generated = byIndex.get(i + 1) || "";
+    let nextContent = generated || current;
+    if (!nextContent && feedback) nextContent = feedback;
+    return { ...sec, content: nextContent, feedback: "" };
+  });
+
+  const rebuilt = updatedSections
+    .map((sec) => {
+      const title = sec.title || "セクション";
+      const body = (sec.content || "").trim();
+      return `## ${title}\n${body}`.trim();
+    })
+    .join("\n\n");
+
+  const split = splitFinalTextAndNotes(rebuilt);
   workspaceState.finalPasteText = toPasteReadyText(split.mainText);
   workspaceState.finalNotesText = split.notesText;
-  workspaceState.rawMarkdown = revised;
-  workspaceState.sections = parseSectionsFromMarkdown(split.mainText).map((sec) => ({ ...sec, feedback: "" }));
+  workspaceState.rawMarkdown = rebuilt;
+  workspaceState.sections = updatedSections;
   renderWorkspaceSections();
   renderWorkspaceFinal();
   setWorkspaceView("final");
@@ -2894,6 +2927,13 @@ function init() {
     const genBtn = $("btnGenerateAi");
     genBtn.disabled = true;
     activeGenerateAbortController = new AbortController();
+    const hardStopTimer = setTimeout(() => {
+      activeGenerateAbortController?.abort();
+      setGeneratingOverlay(false);
+      genBtn.disabled = false;
+      setExportNote("通信待ちが長いため停止しました。再実行してください。");
+      setTimeout(() => setExportNote(""), 3200);
+    }, 120000);
     const d = readForm();
     const promptText = buildPromptText(d);
     setExportNote("AI生成中…（数秒〜）");
@@ -2927,6 +2967,7 @@ function init() {
       setExportNote(`生成失敗: ${e?.message || "不明なエラー"}`);
       setTimeout(() => setExportNote(""), 3500);
     } finally {
+      clearTimeout(hardStopTimer);
       setGeneratingOverlay(false);
       genBtn.disabled = false;
       activeGenerateAbortController = null;
@@ -2940,6 +2981,9 @@ function init() {
       setTimeout(() => setExportNote(""), 1800);
     }
     setGeneratingOverlay(false);
+    $("btnGenerateAi").disabled = false;
+    const reviseBtn = document.getElementById("btnWorkspaceRevise");
+    if (reviseBtn) reviseBtn.disabled = false;
   });
 
   $("btnWorkspaceBack")?.addEventListener("click", () => closeWorkspace());
@@ -2987,6 +3031,13 @@ function init() {
     const btn = $("btnWorkspaceRevise");
     if (btn) btn.disabled = true;
     activeGenerateAbortController = new AbortController();
+    const hardStopTimer = setTimeout(() => {
+      activeGenerateAbortController?.abort();
+      if (btn) btn.disabled = false;
+      setGeneratingOverlay(false);
+      setExportNote("通信待ちが長いため停止しました。再実行してください。");
+      setTimeout(() => setExportNote(""), 3200);
+    }, 120000);
     setExportNote("フィードバックを反映して完成稿を作成中…");
     setGeneratingOverlay(true, "生成中...");
     try {
@@ -3019,6 +3070,7 @@ function init() {
       setTimeout(() => setExportNote(""), 4000);
       setWorkspaceActionNote(`反映失敗: ${e?.message || "不明なエラー"}`, "error");
     } finally {
+      clearTimeout(hardStopTimer);
       if (btn) btn.disabled = false;
       setGeneratingOverlay(false);
       activeGenerateAbortController = null;
