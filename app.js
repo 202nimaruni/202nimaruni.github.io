@@ -2058,6 +2058,18 @@ const workspaceState = {
   view: "sections",
 };
 
+function isMetaSectionTitle(title) {
+  const t = String(title || "").trim().replace(/^【|】$/g, "");
+  return [
+    "文体反映チェック",
+    "選択された文体",
+    "文体強度",
+    "この文体を反映した箇所",
+    "文体上、あえて避けた表現",
+    "出力形式（固定フォーマット）",
+  ].includes(t);
+}
+
 function shouldFormatAsListSection(title) {
   const t = String(title || "");
   return [
@@ -2108,6 +2120,13 @@ function normalizeSectionContent(title, content) {
 
 function rebuildStructuredText(sections) {
   return (sections || [])
+    .filter((sec) => {
+      const title = String(sec?.title || "");
+      if (!title) return false;
+      if (title === "冒頭") return false;
+      if (isMetaSectionTitle(title)) return false;
+      return true;
+    })
     .map((sec) => {
       const title = sec.title || "セクション";
       const body = normalizeSectionContent(title, sec.content || "");
@@ -2139,13 +2158,17 @@ function parseSectionsFromMarkdown(text) {
   const flush = () => {
     if (!current) return;
     const content = current.lines.join("\n").trim();
-    if (current.title || content) {
-      sections.push({
-        id: current.id,
-        title: current.title || "セクション",
-        content,
-        feedback: "",
-      });
+    const title = current.title || "セクション";
+    if (title === "冒頭" && !content) {
+      current = null;
+      return;
+    }
+    if (isMetaSectionTitle(title)) {
+      current = null;
+      return;
+    }
+    if (title || content) {
+      sections.push({ id: current.id, title, content, feedback: "" });
     }
     current = null;
   };
@@ -2219,6 +2242,7 @@ function splitFinalTextAndNotes(text) {
   for (const line of lines) {
     const trimmed = line.trim();
     if (metaLinePatterns.some((re) => re.test(trimmed))) {
+      if (/^【/.test(trimmed)) inNotes = true;
       notes.push(line);
       continue;
     }
