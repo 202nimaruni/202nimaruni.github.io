@@ -2170,6 +2170,131 @@ function drawTextFit(ctx, text, x, y, maxW, maxSize, minSize, weight = 900, colo
   return size;
 }
 
+function splitBeautyHeadline(text) {
+  const t = String(text || "").replace(/\s+/g, "").trim();
+  if (!t) return ["クリニックPR・SNS運用", "動画制作・編集"];
+  const parts = t
+    .replace(/担当$/g, "")
+    .split(/[／\/・&＋+、,]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return [parts.slice(0, 2).join("・").slice(0, 16), parts.slice(2).join("・").slice(0, 16) || "動画制作・編集"].slice(0, 2);
+  }
+  if (t.length > 10) return [t.slice(0, Math.ceil(t.length / 2)), t.slice(Math.ceil(t.length / 2))];
+  return [t, ""];
+}
+
+function drawCenteredTextFit(ctx, text, x, y, w, maxSize, minSize, weight = 900, color = "#123a7a") {
+  const t = String(text || "").trim();
+  if (!t) return minSize;
+  let size = maxSize;
+  for (; size >= minSize; size -= 2) {
+    ctx.font = `${weight} ${size}px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
+    if (ctx.measureText(t).width <= w) break;
+  }
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  const tx = x + (w - ctx.measureText(t).width) / 2;
+  ctx.fillText(t, tx, y);
+  return size;
+}
+
+function drawBeautyIcon(ctx, type, cx, cy, color = "#c78d55") {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (type === "salary") {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.font = `900 24px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("¥", cx, cy + 1);
+  } else if (type === "person") {
+    ctx.beginPath();
+    ctx.arc(cx, cy - 9, 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy + 19, 19, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
+  } else if (type === "book") {
+    ctx.beginPath();
+    ctx.moveTo(cx - 21, cy - 18);
+    ctx.lineTo(cx, cy - 9);
+    ctx.lineTo(cx + 21, cy - 18);
+    ctx.lineTo(cx + 21, cy + 20);
+    ctx.lineTo(cx, cy + 11);
+    ctx.lineTo(cx - 21, cy + 20);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 9);
+    ctx.lineTo(cx, cy + 11);
+    ctx.stroke();
+  } else if (type === "clock") {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 21, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - 12);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + 10, cy + 6);
+    ctx.stroke();
+  } else if (type === "pin") {
+    ctx.beginPath();
+    ctx.arc(cx, cy - 7, 15, 0, Math.PI * 2);
+    ctx.fillStyle = "#df6f89";
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(cx, cy - 7, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#df6f89";
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy + 4);
+    ctx.lineTo(cx, cy + 26);
+    ctx.lineTo(cx + 12, cy + 4);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 24);
+    ctx.lineTo(cx + 7, cy - 7);
+    ctx.lineTo(cx + 24, cy);
+    ctx.lineTo(cx + 7, cy + 7);
+    ctx.lineTo(cx, cy + 24);
+    ctx.lineTo(cx - 7, cy + 7);
+    ctx.lineTo(cx - 24, cy);
+    ctx.lineTo(cx - 7, cy - 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBeautyPill(ctx, x, y, w, h, text, color, iconType) {
+  ctx.save();
+  ctx.shadowColor = "rgba(190, 105, 130, 0.18)";
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 5;
+  drawRoundRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.strokeStyle = "rgba(255,255,255,0.68)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  drawBeautyIcon(ctx, iconType || "sparkle", x + 38, y + h / 2, "rgba(255,255,255,0.92)");
+  drawTextFit(ctx, text, x + 72, y + 18, w - 92, 25, 18, 900, "#ffffff");
+  ctx.restore();
+}
+
 async function ensureDataUrl(src) {
   const s = String(src || "");
   if (!s) throw new Error("画像ソースが空です");
@@ -2289,13 +2414,18 @@ async function buildBannerComposition(analysis, finalText, abortController) {
  "template":"",
  "main_copy":"",
  "sub_copy":"",
- "badges":["","","",""]
+ "badges":["","","",""],
+ "bottom_badges":["","",""],
+ "location_copy":""
 }
 ルール:
 - main_copyは最大18文字
 - sub_copyは最大30文字
 - badgesは最大4個
+- bottom_badgesは最大3個、各16文字以内
+- location_copyは勤務地を短くまとめる（例: 勤務地：東京・横浜・名古屋）
 - 一覧画面で読みやすい短文
+- 美容医療テンプレートでは、添付理想画像のような「大きな2段見出し」「条件カード」「下部の丸角バッジ」に載せやすい文言にする
 
 分析データ:
 ${JSON.stringify(analysis, null, 2)}
@@ -2305,12 +2435,15 @@ ${JSON.stringify(fallback, null, 2)}
 `;
   const parsed = await callChatJson(prompt, { abortController, temperature: 0.2 });
   const badges = Array.isArray(parsed?.badges) ? parsed.badges.filter(Boolean).slice(0, 4) : [];
+  const bottomBadges = Array.isArray(parsed?.bottom_badges) ? parsed.bottom_badges.filter(Boolean).slice(0, 3) : [];
   const template = normalizeTemplateType(analysis, parsed);
   return {
     template,
     main_copy: String(parsed?.main_copy || fallback.headline || "未経験OK").slice(0, 18),
     sub_copy: String(parsed?.sub_copy || fallback.subline || "スタッフ募集").slice(0, 30),
     badges: badges.length ? badges : fallback.badges.slice(0, 3),
+    bottom_badges: bottomBadges.length ? bottomBadges : ["SNS運用経験を活かせる", "動画編集スキル歓迎", "美容医療×クリエイティブ"],
+    location_copy: String(parsed?.location_copy || analysis?.location || "勤務地：東京・横浜・名古屋・大阪").slice(0, 34),
     bottom_copy: String(analysis?.main_message || fallback.bottom || "安心して長く働ける職場環境").slice(0, 34),
   };
 }
@@ -2391,84 +2524,204 @@ function composeBannerWithTemplate(baseImageDataUrl, analysis, composition) {
       ctx.drawImage(img, dx, dy, dw, dh);
 
       if (template === "beauty_recruit") {
-        // Overall pink-beige tint
+        const headlineLines = splitBeautyHeadline(composition.main_copy);
+        const conditionCards = (composition.badges || []).slice(0, 4);
+        while (conditionCards.length < 4) {
+          conditionCards.push(["正社員募集", "研修制度あり", "残業ほぼなし", "月給26万円〜"][conditionCards.length]);
+        }
+        const bottomBadges = (composition.bottom_badges || []).slice(0, 3);
+        while (bottomBadges.length < 3) {
+          bottomBadges.push(["SNS運用経験を活かせる", "動画制作・編集スキル歓迎", "美容医療×クリエイティブ"][bottomBadges.length]);
+        }
+
+        // Overall bright pink-beige tone, matching a cosmetic clinic ad rather than a document.
         const g0 = ctx.createLinearGradient(0, 0, w, h);
-        g0.addColorStop(0, "rgba(255,248,251,0.62)");
-        g0.addColorStop(0.58, "rgba(255,244,238,0.34)");
-        g0.addColorStop(1, "rgba(255,255,255,0.12)");
+        g0.addColorStop(0, "rgba(255,250,248,0.86)");
+        g0.addColorStop(0.45, "rgba(255,245,247,0.66)");
+        g0.addColorStop(0.74, "rgba(255,238,231,0.22)");
+        g0.addColorStop(1, "rgba(255,255,255,0.08)");
         ctx.fillStyle = g0;
         ctx.fillRect(0, 0, w, h);
 
-        // Left translucent panel
-        const gp = ctx.createLinearGradient(0, 0, leftW, h);
-        gp.addColorStop(0, "rgba(255,255,255,0.92)");
-        gp.addColorStop(1, "rgba(252,233,241,0.70)");
+        // Wide copy veil on the left, intentionally less "boxy" than the previous card.
+        const gp = ctx.createLinearGradient(0, 0, leftW + 90, h);
+        gp.addColorStop(0, "rgba(255,255,255,0.96)");
+        gp.addColorStop(0.72, "rgba(255,248,249,0.74)");
+        gp.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = gp;
-        drawRoundRect(ctx, 24, 20, leftW - 34, h - 190, 28);
-        ctx.fill();
-        ctx.lineWidth = 1.2;
-        ctx.strokeStyle = "rgba(230,192,150,0.65)";
-        ctx.stroke();
+        ctx.fillRect(0, 0, leftW + 90, h);
 
-        // top ribbon
-        drawRoundRect(ctx, 56, 42, 350, 54, 26);
-        ctx.fillStyle = "rgba(255,241,232,0.95)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(200,150,100,0.7)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        drawTextFit(ctx, "美容医療業界で活躍！", 78, 56, 308, 36, 20, 800, "#b56a8f");
-
-        // headline/sub
-        drawTextFit(ctx, composition.main_copy, 56, 126, leftW - 120, 86, 44, 900, "#b04773");
-        drawTextFit(ctx, composition.sub_copy, 58, 220, leftW - 124, 46, 26, 800, "#4d3c3c");
-
-        // subtle gold divider
-        ctx.strokeStyle = "rgba(199,141,85,0.45)";
+        // soft gold arcs and dotted divider decorations
+        ctx.strokeStyle = "rgba(199,141,85,0.34)";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(56, 286);
-        ctx.lineTo(leftW - 76, 286);
+        ctx.arc(124, 224, 300, Math.PI * 0.66, Math.PI * 1.46);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(986, 778, 360, Math.PI * 0.94, Math.PI * 1.35);
         ctx.stroke();
 
-        const badges = (composition.badges || []).slice(0, 4);
-        badges.forEach((b, i) => {
-          const y = 310 + i * 88;
-          drawRoundRect(ctx, 56, y, leftW - 126, 64, 18);
-          ctx.fillStyle = "rgba(255,255,255,0.92)";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(199,141,85,0.62)";
-          ctx.lineWidth = 1.8;
-          ctx.stroke();
-
-          // icon-like circle
-          ctx.beginPath();
-          ctx.arc(84, y + 32, 13, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(199,141,85,0.25)";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(199,141,85,0.6)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-
-          drawTextFit(ctx, b, 108, y + 16, leftW - 190, 34, 21, 900, "#6a4b42");
-        });
-
-        // bottom CTA ribbon
-        const ribbonH = 104;
-        const gr = ctx.createLinearGradient(0, h - ribbonH, w, h);
-        gr.addColorStop(0, "#d887a9");
-        gr.addColorStop(1, "#c78d55");
-        ctx.fillStyle = gr;
-        drawRoundRect(ctx, 26, h - ribbonH - 8, w - 52, ribbonH, 28);
+        // top ribbon label
+        ctx.save();
+        ctx.shadowColor = "rgba(190,105,130,0.16)";
+        ctx.shadowBlur = 16;
+        ctx.shadowOffsetY = 5;
+        drawRoundRect(ctx, 62, 43, 455, 62, 0);
+        ctx.fillStyle = "rgba(255,243,239,0.96)";
         ctx.fill();
-        drawTextFit(ctx, composition.bottom_copy, 52, h - ribbonH + 24, w - 104, 40, 24, 900, "#ffffff");
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(199,141,85,0.68)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(517, 43);
+        ctx.lineTo(566, 43);
+        ctx.lineTo(536, 74);
+        ctx.lineTo(566, 105);
+        ctx.lineTo(517, 105);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(255,243,239,0.96)";
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        drawTextFit(ctx, "美容医療業界で活躍！", 110, 60, 356, 27, 20, 900, "#c75b82");
 
-        // decorative sparkles
-        ctx.fillStyle = "rgba(255,255,255,0.75)";
-        [ [leftW - 90, 74], [w - 78, 130], [w - 118, 740] ].forEach(([x,y]) => {
-          ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(x + 12, y + 8, 2.4, 0, Math.PI * 2); ctx.fill();
+        // sparkle beside the ribbon
+        drawBeautyIcon(ctx, "sparkle", 610, 75, "rgba(199,141,85,0.78)");
+
+        // Large two-line headline
+        ctx.save();
+        ctx.shadowColor = "rgba(177,65,98,0.12)";
+        ctx.shadowBlur = 2;
+        drawTextFit(ctx, headlineLines[0], 30, 138, 825, 58, 42, 900, "#cf5878");
+        if (headlineLines[1]) drawTextFit(ctx, headlineLines[1], 30, 242, 740, 66, 44, 900, "#cf5878");
+        ctx.restore();
+
+        // small "担当" labels like the reference image
+        ctx.font = `900 38px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
+        ctx.fillStyle = "#4e3b34";
+        if (headlineLines[0]) {
+          const m0 = ctx.measureText(headlineLines[0]).width;
+          ctx.fillText("担当", Math.min(820, 42 + m0), 154);
+        }
+        if (headlineLines[1]) {
+          const m1 = ctx.measureText(headlineLines[1]).width;
+          ctx.fillText("担当", Math.min(820, 42 + m1), 260);
+        }
+
+        // dotted gold divider
+        ctx.strokeStyle = "rgba(199,141,85,0.45)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        ctx.moveTo(32, 229);
+        ctx.lineTo(770, 229);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // sub copy
+        const subLines = String(composition.sub_copy || "SNSスキルを活かして、美容医療の世界へ")
+          .replace(/[。]/g, "")
+          .split(/[、,]/)
+          .filter(Boolean)
+          .slice(0, 2);
+        drawTextFit(ctx, subLines[0] || composition.sub_copy, 32, 357, 650, 28, 21, 700, "#332724");
+        if (subLines[1]) drawTextFit(ctx, subLines[1], 32, 398, 650, 28, 21, 700, "#332724");
+
+        // condition card row
+        const cardX = 18;
+        const cardY = 508;
+        const cardW = 815;
+        const cardH = 118;
+        ctx.save();
+        ctx.shadowColor = "rgba(176,71,115,0.16)";
+        ctx.shadowBlur = 18;
+        ctx.shadowOffsetY = 7;
+        drawRoundRect(ctx, cardX, cardY, cardW, cardH, 10);
+        ctx.fillStyle = "rgba(255,255,255,0.94)";
+        ctx.fill();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(231,199,151,0.78)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+
+        const iconTypes = ["salary", "person", "book", "clock"];
+        const cellW = cardW / 4;
+        conditionCards.forEach((b, i) => {
+          const x = cardX + i * cellW;
+          if (i > 0) {
+            ctx.strokeStyle = "rgba(231,199,151,0.58)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, cardY + 17);
+            ctx.lineTo(x, cardY + cardH - 17);
+            ctx.stroke();
+          }
+          drawBeautyIcon(ctx, iconTypes[i], x + 43, cardY + 57, "#c78d55");
+          const text = String(b || "").replace(/（[^）]*）/g, "");
+          drawCenteredTextFit(ctx, text, x + 82, cardY + 26, cellW - 96, 29, 18, 900, "#4b352e");
         });
+
+        // location strip
+        ctx.save();
+        ctx.shadowColor = "rgba(176,71,115,0.10)";
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 4;
+        drawRoundRect(ctx, 18, 654, 820, 70, 8);
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.fill();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(231,199,151,0.76)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+        drawBeautyIcon(ctx, "pin", 70, 689, "#df6f89");
+        drawTextFit(ctx, composition.location_copy || "勤務地：東京・横浜・名古屋・大阪", 113, 677, 680, 30, 19, 900, "#4b352e");
+
+        // laptop/video-editing motif on the right bottom, drawn locally to avoid AI text artifacts.
+        ctx.save();
+        ctx.shadowColor = "rgba(60,30,35,0.22)";
+        ctx.shadowBlur = 18;
+        ctx.shadowOffsetY = 8;
+        drawRoundRect(ctx, 860, 505, 248, 152, 10);
+        ctx.fillStyle = "#2b2c32";
+        ctx.fill();
+        ctx.shadowColor = "transparent";
+        drawRoundRect(ctx, 874, 520, 220, 103, 5);
+        ctx.fillStyle = "#343a42";
+        ctx.fill();
+        ctx.fillStyle = "#d98ba5";
+        ctx.fillRect(887, 589, 92, 12);
+        ctx.fillStyle = "#c78d55";
+        ctx.fillRect(984, 589, 84, 12);
+        ctx.fillStyle = "#f1dbe4";
+        ctx.fillRect(887, 607, 180, 7);
+        ctx.beginPath();
+        ctx.moveTo(832, 670);
+        ctx.lineTo(1132, 670);
+        ctx.lineTo(1106, 642);
+        ctx.lineTo(858, 642);
+        ctx.closePath();
+        ctx.fillStyle = "#e8ddd7";
+        ctx.fill();
+        ctx.restore();
+
+        // floating social-like icons
+        drawBeautyPill(ctx, 1116, 487, 64, 64, "", "#ee8aa2", "sparkle");
+        drawBeautyPill(ctx, 1094, 584, 72, 72, "", "#d1a75f", "sparkle");
+
+        // bottom pill badges
+        drawBeautyPill(ctx, 34, 760, 360, 72, bottomBadges[0], "#df768e", "salary");
+        drawBeautyPill(ctx, 432, 760, 330, 72, bottomBadges[1], "#d0a861", "book");
+        drawBeautyPill(ctx, 800, 760, 360, 72, bottomBadges[2], "#df768e", "sparkle");
+
+        // warm white vignette to keep edges premium and clean
+        const edge = ctx.createRadialGradient(w * 0.52, h * 0.42, 220, w * 0.52, h * 0.42, 820);
+        edge.addColorStop(0, "rgba(255,255,255,0)");
+        edge.addColorStop(1, "rgba(255,246,248,0.20)");
+        ctx.fillStyle = edge;
+        ctx.fillRect(0, 0, w, h);
       } else {
         // default/simple template
         ctx.fillStyle = style.bg;
