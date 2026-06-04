@@ -2128,6 +2128,7 @@ function splitFinalTextAndNotes(text) {
   const main = [];
   const notes = [];
   let inNotes = false;
+  const metaLinePatterns = [/^文体指定\s*[:：]/i, /^出力形式（固定フォーマット）\s*$/i];
 
   const noteHeadingPatterns = [
     /^#{1,6}\s*(求人を作成する際に気をつけたポイント|作成時の注意ポイント|注意事項|原稿狙い)\s*[:：]?\s*$/i,
@@ -2137,6 +2138,10 @@ function splitFinalTextAndNotes(text) {
 
   for (const line of lines) {
     const trimmed = line.trim();
+    if (metaLinePatterns.some((re) => re.test(trimmed))) {
+      notes.push(line);
+      continue;
+    }
     if (!inNotes && noteHeadingPatterns.some((re) => re.test(trimmed))) {
       inNotes = true;
       continue;
@@ -2242,8 +2247,8 @@ function renderWorkspaceFinal() {
 
 function openWorkspace(markdown) {
   workspaceState.rawMarkdown = markdown || "";
-  workspaceState.sections = parseSectionsFromMarkdown(workspaceState.rawMarkdown);
   const split = splitFinalTextAndNotes(workspaceState.rawMarkdown);
+  workspaceState.sections = parseSectionsFromMarkdown(split.mainText);
   workspaceState.finalPasteText = toPasteReadyText(split.mainText);
   workspaceState.finalNotesText = split.notesText;
   workspaceState.view = "sections";
