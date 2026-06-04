@@ -10,7 +10,7 @@
     <link rel="icon" href="./morishy-logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="./morishy-logo.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260604j" />
+    <link rel="stylesheet" href="./styles.css?v=20260604k" />
   </head>
   <body>
     <header class="topbar">
@@ -410,6 +410,21 @@
             <div class="workspace__finalNotesTitle">投稿対象外メモ（求人本文には含まれません）</div>
             <pre class="workspace__finalNotesText" id="workspaceFinalNotesText"></pre>
           </div>
+          <div class="workspace__thumb">
+            <div class="workspace__thumbTitle">求人サムネイル生成</div>
+            <div class="workspace__thumbActions">
+              <button class="btn btn--primary" id="btnGenerateThumb" type="button">サムネイルを生成</button>
+              <button class="btn btn--ghost" id="btnRegenerateThumb" type="button">フィードバックで再生成</button>
+              <button class="btn btn--ghost" id="btnDownloadThumb" type="button">画像を保存</button>
+            </div>
+            <textarea
+              class="workspace__thumbFeedback"
+              id="thumbFeedback"
+              placeholder="例：文字を太く／青ベースで統一／年休120日を強調／もっと清潔感ある写真に"
+            ></textarea>
+            <div class="workspace__thumbNote" id="thumbNote"></div>
+            <img class="workspace__thumbImage" id="thumbPreview" alt="生成した求人サムネイル" hidden />
+          </div>
         </div>
       </div>
     </div>
@@ -436,6 +451,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260604j" defer></script>
+    <script src="./app.js?v=20260604k" defer></script>
   </body>
 </html>
