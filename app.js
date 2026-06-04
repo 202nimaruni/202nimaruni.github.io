@@ -2093,39 +2093,103 @@ function renderThumbnailPreview() {
   img.hidden = false;
 }
 
+async function normalizeImageToFourThree(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const targetW = 1200;
+      const targetH = 900; // 4:3
+      const srcW = img.naturalWidth || img.width;
+      const srcH = img.naturalHeight || img.height;
+      const srcRatio = srcW / srcH;
+      const targetRatio = targetW / targetH;
+
+      let sx = 0;
+      let sy = 0;
+      let sw = srcW;
+      let sh = srcH;
+
+      if (srcRatio > targetRatio) {
+        // wider: crop horizontally
+        sw = srcH * targetRatio;
+        sx = Math.max(0, (srcW - sw) / 2);
+      } else if (srcRatio < targetRatio) {
+        // taller: crop vertically
+        sh = srcW / targetRatio;
+        sy = Math.max(0, (srcH - sh) / 2);
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("canvas初期化に失敗しました"));
+        return;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("画像の整形に失敗しました"));
+    img.src = src;
+  });
+}
+
 function buildThumbnailPrompt(finalText, formData, extraFeedback = "") {
   const feedback = String(extraFeedback || "").trim();
-  return `あなたは日本の求人広告クリエイティブデザイナーです。
-求人原稿を読み、求人サムネイル画像を1枚作成してください。
+  return `Create a highly professional Japanese recruitment advertisement banner.
+The design must be extremely clean, high-contrast, and highly legible, combining graphic design with a photorealistic image.
 
-【デザイン方向性（サンプル準拠）】
-- 日本の求人バナー風、明るく視認性の高いデザイン
-- 太めの日本語見出しを大きく配置
-- 条件訴求（給与・休日・未経験歓迎等）を丸や帯のバッジで3〜5個
-- 背景は職種に合う実写風シーン（働く人物）
-- 文字は読みやすさ最優先（高コントラスト、過密にしない）
+【Layout Structure】
+- Split screen horizontally.
+- Left 60%: clean white/light background for typography.
+- Right 40%: photorealistic portrait scene related to the job.
 
-【禁止】
-- 既存企業ロゴ・他社商標・キャラクターIPの使用
-- 誤解を招く誇張、本文にない条件の創作
+【Photo Quality】
+- Use photorealistic Japanese people.
+- Natural skin texture, realistic hands, realistic lighting, clean modern environment.
+- Commercial ad quality, no cartoon style.
 
-【画像仕様】
-- 横長（3:2）
-- 求人サムネイルとしてそのまま使える完成デザイン
+【Text Rules (VERY IMPORTANT)】
+- All Japanese text must be valid and readable.
+- No gibberish, no broken characters, no random English words.
+- Use short, bold, high-impact Japanese phrases only based on the job information.
+- Prefer this text hierarchy:
+  1) Top headline: 未経験OK / 正社員募集 / 職種名 など
+  2) Sub headline: 仕事内容の価値・魅力
+  3) 3〜5 benefit badges: 給与・休日・残業・勤務地・経験不問など
+  4) Bottom full-width ribbon with one clear trust message
 
-【求人情報】
+【Visual Style (sample-aligned)】
+- Japanese job ad banner style similar to provided samples:
+  - Big bold headlines
+  - Colored ribbons and rounded badges
+  - Strong contrast and readability on mobile
+  - Bright and trustworthy tone
+
+【Strict Constraints】
+- Do NOT use existing company logos, trademarks, anime/game characters, copyrighted mascots.
+- Do NOT invent conditions not present in source text.
+- Do NOT include meta text (e.g., 文体反映チェック, 文体指定).
+
+【Output Specs】
+- Aspect ratio 4:3
+- One final banner image
+
+【Job Info】
 職種: ${formData.jobTitle || "未入力"}
 会社: ${formData.companyName || "未入力"}
 勤務地: ${formData.workAddress || "未入力"}
 給与: ${formData.salary || "未入力"}
 勤務形態: ${formData.employmentType || "未入力"}
-文体: ${formData.styleType || ""}／${formData.styleStrength || ""}
 
-【完成原稿】
+【Recruitment Copy Source】
 ${finalText}
 
-${feedback ? `【追加フィードバック】\n${feedback}\n` : ""}
-上記を満たす画像を1枚生成してください。`;
+${feedback ? `【Additional feedback to apply exactly】\n${feedback}\n` : ""}
+Use style cues from prior Japanese recruitment banner samples: strong headline hierarchy, clear badges, high readability, realistic photography.
+Generate the final recruitment banner now.`;
 }
 
 async function generateThumbnailWithAI(promptText, { abortController, timeoutMs = 90000 } = {}) {
@@ -3175,10 +3239,11 @@ function init() {
     setThumbNote("サムネイルを生成中です…");
     try {
       const prompt = buildThumbnailPrompt(baseText, d, extraFeedback);
-      const imageDataUrl = await generateThumbnailWithAI(prompt, {
+      const rawImageUrl = await generateThumbnailWithAI(prompt, {
         abortController: activeGenerateAbortController,
         timeoutMs: 120000,
       });
+      const imageDataUrl = await normalizeImageToFourThree(rawImageUrl);
       workspaceState.thumbnailDataUrl = imageDataUrl;
       renderThumbnailPreview();
       setThumbNote("サムネイル生成が完了しました。", "ok");
