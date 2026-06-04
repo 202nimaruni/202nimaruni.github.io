@@ -2127,31 +2127,23 @@ function parseSectionText(fullText, sectionName) {
 function pickBannerTexts(formData, finalText) {
   const all = String(finalText || "");
   const jobTitle = (formData.jobTitle || "").trim() || "スタッフ";
-  const catchSec = parseSectionText(all, "求人キャッチコピー");
   const salarySec = parseSectionText(all, "給与");
   const holidaySec = parseSectionText(all, "募集要項 - 休暇・休日") || parseSectionText(all, "休暇・休日");
   const workSec = parseSectionText(all, "勤務時間・曜日");
 
   const headline = /未経験/.test(all) ? "未経験OK" : "正社員募集";
   const subline = `${jobTitle}大募集`;
-
   const salaryBadge =
     salarySec.match(/(月給[^\n。]{0,18})/)?.[1] ||
     salarySec.match(/(年収[^\n。]{0,18})/)?.[1] ||
     "給与は経験を考慮";
-
   const holidayBadge = /土日祝/.test(holidaySec)
     ? "土日祝休み"
     : holidaySec.match(/年(?:間)?休(?:日)?\s*(\d{2,3})\s*日/)?.[0] || "休日制度あり";
-
   const overtimeBadge =
-    /残業[^。\n]*(ほぼなし|少なめ|ゼロ|なし)/.test(workSec + "\n" + all)
-      ? "残業ほぼゼロ"
-      : "働きやすい環境";
-
+    /残業[^。\n]*(ほぼなし|少なめ|ゼロ|なし)/.test(workSec + "\n" + all) ? "残業ほぼゼロ" : "働きやすい環境";
   const bottom = "安心して長く働ける職場環境";
-  const kicker = (catchSec.split(/\n/).find(Boolean) || "").slice(0, 26);
-  return { headline, subline, kicker, badges: [salaryBadge, holidayBadge, overtimeBadge], bottom };
+  return { headline, subline, badges: [salaryBadge, holidayBadge, overtimeBadge], bottom };
 }
 
 function drawRoundRect(ctx, x, y, w, h, r) {
@@ -2163,6 +2155,19 @@ function drawRoundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+function drawTextFit(ctx, text, x, y, maxW, maxSize, minSize, weight = 900, color = "#123a7a") {
+  const t = String(text || "").trim() || "求人募集";
+  let size = maxSize;
+  for (; size >= minSize; size -= 2) {
+    ctx.font = `${weight} ${size}px "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif`;
+    if (ctx.measureText(t).width <= maxW) break;
+  }
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  ctx.fillText(t, x, y);
+  return size;
 }
 
 async function ensureDataUrl(src) {
@@ -2180,75 +2185,217 @@ async function ensureDataUrl(src) {
   });
 }
 
+const THUMBNAIL_SYSTEM_DIRECTIVE = `サムネイル生成機能 改修指示書
+画像生成と文字描画を完全分離する。
+求人内容→ターゲット分析→デザインテンプレート選択→背景生成→文字配置→品質検査の6工程。
+背景生成では必ず No text. No typography. No logo. No words. No Japanese characters. を守る。`;
+
+const TEMPLATE_STYLES = {
+  beauty_recruit: { accent: "#d58aa7", accent2: "#f1c9d9", ribbon: "#b56a8f", bg: "#fff8fb", stroke: "#e7b3c8" },
+  sales_recruit: { accent: "#1d4f91", accent2: "#d7e7ff", ribbon: "#153d73", bg: "#f7fbff", stroke: "#99bbe8" },
+  driver_recruit: { accent: "#0f4c81", accent2: "#d8edf8", ribbon: "#0c3f68", bg: "#f4fbff", stroke: "#8dbad8" },
+  office_recruit: { accent: "#2968a3", accent2: "#e2effb", ribbon: "#1f5487", bg: "#f7fbff", stroke: "#9ec2e6" },
+  factory_recruit: { accent: "#d16a1a", accent2: "#ffe8d2", ribbon: "#aa5414", bg: "#fffaf5", stroke: "#efbf92" },
+  engineer_recruit: { accent: "#1f63b8", accent2: "#d8e9ff", ribbon: "#1a4f91", bg: "#f5f9ff", stroke: "#9cbef0" },
+  nurse_recruit: { accent: "#4ea7de", accent2: "#d8f0ff", ribbon: "#2f83b8", bg: "#f6fcff", stroke: "#9fd3ef" },
+  restaurant_recruit: { accent: "#b8712e", accent2: "#f8e8d8", ribbon: "#915a24", bg: "#fffaf3", stroke: "#dbb18a" },
+  care_recruit: { accent: "#4aa96b", accent2: "#dff4e6", ribbon: "#36854f", bg: "#f6fff8", stroke: "#9dd4ad" },
+  default: { accent: "#2f9ad8", accent2: "#d8efff", ribbon: "#1f6fa1", bg: "#f7fbff", stroke: "#9ecded" },
+};
+
+async function callChatJson(prompt, { abortController, timeoutMs = 90000, temperature = 0.2 } = {}) {
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) throw new Error("APIキー未設定（右上の「設定」から保存してください）");
+  const controller = abortController || new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Chat API error: HTTP ${res.status}`);
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || "";
+    const m = String(content).match(/\{[\s\S]*\}/);
+    return JSON.parse(m ? m[0] : content);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function analyzeJobForThumbnail(finalText, formData, extraFeedback = "", abortController) {
+  const prompt = `${THUMBNAIL_SYSTEM_DIRECTIVE}
+求人原稿を分析してJSONのみ返してください。
+形式:
+{
+ "industry":"",
+ "job_type":"",
+ "target":"",
+ "main_message":"",
+ "sub_message":"",
+ "appeal_points":[],
+ "salary":"",
+ "location":"",
+ "employment_type":"",
+ "visual_direction":"",
+ "template_type":""
+}
+template_typeは次から選択: beauty_recruit,sales_recruit,driver_recruit,office_recruit,factory_recruit,engineer_recruit,nurse_recruit,restaurant_recruit,care_recruit
+
+求人情報:
+職種=${formData.jobTitle || ""}
+勤務地=${formData.workAddress || ""}
+給与=${formData.salary || ""}
+雇用形態=${formData.employmentType || ""}
+
+完成原稿:
+${finalText}
+
+${extraFeedback ? `追加フィードバック:\n${extraFeedback}\n` : ""}`;
+  const parsed = await callChatJson(prompt, { abortController, temperature: 0.1 });
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+async function buildBannerComposition(analysis, finalText, abortController) {
+  const fallback = pickBannerTexts({}, finalText);
+  const prompt = `${THUMBNAIL_SYSTEM_DIRECTIVE}
+求人サムネイル専用の構成をJSONで返してください。
+形式:
+{
+ "template":"",
+ "main_copy":"",
+ "sub_copy":"",
+ "badges":["","","",""]
+}
+ルール:
+- main_copyは最大18文字
+- sub_copyは最大30文字
+- badgesは最大4個
+- 一覧画面で読みやすい短文
+
+分析データ:
+${JSON.stringify(analysis, null, 2)}
+
+フォールバック候補:
+${JSON.stringify(fallback, null, 2)}
+`;
+  const parsed = await callChatJson(prompt, { abortController, temperature: 0.2 });
+  const badges = Array.isArray(parsed?.badges) ? parsed.badges.filter(Boolean).slice(0, 4) : [];
+  return {
+    template: parsed?.template || analysis?.template_type || "default",
+    main_copy: String(parsed?.main_copy || fallback.headline || "未経験OK").slice(0, 18),
+    sub_copy: String(parsed?.sub_copy || fallback.subline || "スタッフ募集").slice(0, 30),
+    badges: badges.length ? badges : fallback.badges.slice(0, 3),
+    bottom_copy: String(analysis?.main_message || fallback.bottom || "安心して長く働ける職場環境").slice(0, 34),
+  };
+}
+
+function buildBackgroundPrompt(analysis, composition, variant = 0) {
+  const vibe = [
+    "bright and trustworthy ad-photo style",
+    "premium clean commercial photo style",
+    "friendly energetic recruitment photo style",
+  ][variant] || "bright and trustworthy ad-photo style";
+  return `A photorealistic Japanese recruitment banner background image.
+Industry: ${analysis?.industry || "general business"}.
+Job type: ${analysis?.job_type || composition?.main_copy || "staff"}.
+Visual direction: ${analysis?.visual_direction || "clean modern workplace"}.
+Composition: right side person, left side clean space for text.
+Color mood: ${vibe}.
+High-end commercial photography, realistic face/hands, natural skin.
+No text.
+No typography.
+No logo.
+No words.
+No Japanese characters.
+No banner.
+No signage.`;
+}
+
+function composeBannerWithTemplate(baseImageDataUrl, analysis, composition) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = 1200;
+      const h = 900;
+      const leftW = Math.round(w * 0.6);
+      const style = TEMPLATE_STYLES[composition.template] || TEMPLATE_STYLES[analysis?.template_type] || TEMPLATE_STYLES.default;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("canvas初期化に失敗しました"));
+        return;
+      }
+      ctx.fillStyle = style.bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const sw = img.naturalWidth || img.width;
+      const sh = img.naturalHeight || img.height;
+      const rightW = w - leftW;
+      const scale = Math.max(rightW / sw, h / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      const dx = leftW + (rightW - dw) / 2;
+      const dy = (h - dh) / 2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+
+      ctx.fillStyle = style.bg;
+      ctx.fillRect(0, 0, leftW, h);
+
+      drawTextFit(ctx, composition.main_copy, 48, 86, leftW - 90, 102, 58, 900, "#173861");
+      drawTextFit(ctx, composition.sub_copy, 52, 214, leftW - 96, 52, 30, 800, style.accent);
+
+      const badges = (composition.badges || []).slice(0, 4);
+      badges.forEach((b, i) => {
+        const y = 330 + i * 92;
+        drawRoundRect(ctx, 48, y, leftW - 96, 66, 18);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = i % 2 === 0 ? style.accent : style.stroke;
+        ctx.stroke();
+        drawTextFit(ctx, b, 72, y + 15, leftW - 150, 40, 24, 900, "#1b3c66");
+      });
+
+      const ribbonH = 96;
+      ctx.fillStyle = style.ribbon;
+      ctx.fillRect(0, h - ribbonH, w, ribbonH);
+      drawTextFit(ctx, composition.bottom_copy, 34, h - ribbonH + 24, w - 70, 44, 28, 900, "#ffffff");
+
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("背景画像の読み込みに失敗しました"));
+    img.src = baseImageDataUrl;
+  });
+}
 
 function buildThumbnailPrompt(finalText, formData, extraFeedback = "", variant = 0) {
   const feedback = String(extraFeedback || "").trim();
-  const textPreset = pickBannerTexts(formData, finalText);
-  const variants = [
-    "High-end corporate clean style with premium typography balance.",
-    "Bold Japanese recruitment ad style with energetic badge emphasis.",
-    "Soft trustworthy healthcare-style visual tone with clear hierarchy.",
-  ];
-  const variantLine = variants[variant] || variants[0];
-  return `Create a highly professional Japanese recruitment advertisement banner.
-The design must be extremely clean, high-contrast, and highly legible, combining graphic design with a photorealistic image.
+  return `${THUMBNAIL_SYSTEM_DIRECTIVE}
+背景素材生成専用。文字は絶対に描かない。
+variant=${variant}
+職種=${formData.jobTitle || ""}
+勤務地=${formData.workAddress || ""}
+給与=${formData.salary || ""}
+${feedback ? `追加要望=${feedback}` : ""}
 
-【Layout Structure】
-- Split screen horizontally.
-- Left 60%: clean white/light background for typography.
-- Right 40%: photorealistic portrait scene related to the job.
-
-【Photo Quality】
-- Use photorealistic Japanese people.
-- Natural skin texture, realistic hands, realistic lighting, clean modern environment.
-- Commercial ad quality, no cartoon style.
-
-【Text Rules (VERY IMPORTANT)】
-- All Japanese text must be valid and readable.
-- No gibberish, no broken characters, no random English words.
-- Render these Japanese phrases exactly as written (no typo, no substitution):
-  - Main headline: 「${textPreset.headline}」
-  - Sub headline: 「${textPreset.subline}」
-  - Badge 1: 「${textPreset.badges[0]}」
-  - Badge 2: 「${textPreset.badges[1]}」
-  - Badge 3: 「${textPreset.badges[2]}」
-  - Bottom ribbon: 「${textPreset.bottom}」
-- Prefer this text hierarchy:
-  1) Top headline: 未経験OK / 正社員募集 / 職種名 など
-  2) Sub headline: 仕事内容の価値・魅力
-  3) 3〜5 benefit badges: 給与・休日・残業・勤務地・経験不問など
-  4) Bottom full-width ribbon with one clear trust message
-
-【Visual Style (sample-aligned)】
-- Japanese job ad banner style similar to provided samples:
-  - Big bold headlines
-  - Colored ribbons and rounded badges
-  - Strong contrast and readability on mobile
-  - Bright and trustworthy tone
-
-【Strict Constraints】
-- Do NOT use existing company logos, trademarks, anime/game characters, copyrighted mascots.
-- Do NOT invent conditions not present in source text.
-- Do NOT include meta text (e.g., 文体反映チェック, 文体指定).
-
-【Output Specs】
-- Aspect ratio 4:3
-- One final banner image
-
-【Job Info】
-職種: ${formData.jobTitle || "未入力"}
-会社: ${formData.companyName || "未入力"}
-勤務地: ${formData.workAddress || "未入力"}
-給与: ${formData.salary || "未入力"}
-勤務形態: ${formData.employmentType || "未入力"}
-
-【Recruitment Copy Source】
-${finalText}
-
-${feedback ? `【Additional feedback to apply exactly】\n${feedback}\n` : ""}
-Use style cues from prior Japanese recruitment banner samples: strong headline hierarchy, clear badges, high readability, realistic photography.
-Design variant hint: ${variantLine}
-Generate one final complete banner including text.`;
+No text.
+No typography.
+No logo.
+No words.
+No Japanese characters.`;
 }
 
 async function generateThumbnailWithAI(promptText, { abortController, timeoutMs = 90000 } = {}) {
@@ -2296,19 +2443,23 @@ async function generateThumbnailWithAI(promptText, { abortController, timeoutMs 
 
 async function scoreThumbnailCandidate(imageDataUrl, requiredTexts, { timeoutMs = 45000 } = {}) {
   const apiKey = getOpenAIApiKey();
-  if (!apiKey) return 50;
+  if (!apiKey) {
+    return { readability: 7, design_quality: 7, text_overlap: false, face_quality: 7, professional_score: 7, score: 70 };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const must = requiredTexts.filter(Boolean).slice(0, 8);
   const prompt = `あなたは求人バナー品質審査員です。
-画像を評価し、JSONで返答してください。
-必須語句: ${must.join(" / ")}
-評価観点:
-- 文字の可読性
-- 文字化けの有無
-- レイアウト品質
-- 求人バナーらしさ
-返答形式: {"score":0-100,"reason":"短く"} のJSONのみ。`;
+画像を評価し、JSONで返答してください。必須語句: ${must.join(" / ")}
+評価項目は以下:
+{
+"readability":0-10,
+"design_quality":0-10,
+"text_overlap":true/false,
+"face_quality":0-10,
+"professional_score":0-10
+}
+JSONのみ返答。`;
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -2331,16 +2482,27 @@ async function scoreThumbnailCandidate(imageDataUrl, requiredTexts, { timeoutMs 
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return 50;
+    if (!res.ok) throw new Error("vision評価失敗");
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content || "";
     const m = String(content).match(/\{[\s\S]*\}/);
     const parsed = m ? JSON.parse(m[0]) : JSON.parse(content);
-    const score = Number(parsed?.score);
-    if (Number.isFinite(score)) return Math.max(0, Math.min(100, score));
-    return 50;
+    const readability = Number(parsed?.readability) || 0;
+    const designQuality = Number(parsed?.design_quality) || 0;
+    const faceQuality = Number(parsed?.face_quality) || 0;
+    const professionalScore = Number(parsed?.professional_score) || 0;
+    const textOverlap = Boolean(parsed?.text_overlap);
+    const score = Math.round(((readability + designQuality + faceQuality + professionalScore) / 4) * 10);
+    return {
+      readability,
+      design_quality: designQuality,
+      text_overlap: textOverlap,
+      face_quality: faceQuality,
+      professional_score: professionalScore,
+      score,
+    };
   } catch {
-    return 50;
+    return { readability: 6, design_quality: 6, text_overlap: false, face_quality: 6, professional_score: 6, score: 60 };
   } finally {
     clearTimeout(timer);
   }
@@ -3356,23 +3518,59 @@ function init() {
       setThumbNote("サムネイルを生成中です…（背景生成→文字レイアウト）");
     try {
       const required = pickBannerTexts(d, baseText);
-      const candidates = [];
+      const analysis = await analyzeJobForThumbnail(baseText, d, extraFeedback, activeGenerateAbortController);
+      const composition = await buildBannerComposition(analysis, baseText, activeGenerateAbortController);
+      const initialCandidates = [];
       for (let i = 0; i < 3; i += 1) {
-        const prompt = buildThumbnailPrompt(baseText, d, extraFeedback, i);
+        const bgPrompt = buildBackgroundPrompt(analysis, composition, i);
+        const prompt = `${buildThumbnailPrompt(baseText, d, extraFeedback, i)}\n\n${bgPrompt}`;
         const rawImageUrl = await generateThumbnailWithAI(prompt, {
           abortController: activeGenerateAbortController,
           timeoutMs: 120000,
         });
-        const imageDataUrl = await ensureDataUrl(rawImageUrl);
-        const score = await scoreThumbnailCandidate(imageDataUrl, [
-          required.headline,
-          required.subline,
-          ...required.badges,
-          required.bottom,
+        const bgDataUrl = await ensureDataUrl(rawImageUrl);
+        const imageDataUrl = await composeBannerWithTemplate(bgDataUrl, analysis, composition);
+        const metrics = await scoreThumbnailCandidate(imageDataUrl, [
+          composition.main_copy || required.headline,
+          composition.sub_copy || required.subline,
+          ...(composition.badges || required.badges || []),
+          composition.bottom_copy || required.bottom,
         ]);
-        candidates.push({ src: imageDataUrl, score, variant: i + 1 });
+        initialCandidates.push({ src: imageDataUrl, score: metrics.score, metrics, variant: i + 1 });
       }
-      candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+      // auto-regenerate once if quality threshold not met
+      let pool = initialCandidates.slice();
+      const bestFirst = pool.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+      const needRetry = bestFirst?.metrics
+        ? bestFirst.metrics.readability < 8 ||
+          bestFirst.metrics.design_quality < 8 ||
+          bestFirst.metrics.professional_score < 8 ||
+          bestFirst.metrics.text_overlap === true
+        : false;
+
+      if (needRetry) {
+        setThumbNote("品質基準未達のため再生成中…");
+        for (let i = 0; i < 3; i += 1) {
+          const bgPrompt = buildBackgroundPrompt(analysis, composition, i + 10);
+          const prompt = `${buildThumbnailPrompt(baseText, d, `${extraFeedback}\n品質重視で再生成`, i)}\n\n${bgPrompt}`;
+          const rawImageUrl = await generateThumbnailWithAI(prompt, {
+            abortController: activeGenerateAbortController,
+            timeoutMs: 120000,
+          });
+          const bgDataUrl = await ensureDataUrl(rawImageUrl);
+          const imageDataUrl = await composeBannerWithTemplate(bgDataUrl, analysis, composition);
+          const metrics = await scoreThumbnailCandidate(imageDataUrl, [
+            composition.main_copy || required.headline,
+            composition.sub_copy || required.subline,
+            ...(composition.badges || required.badges || []),
+            composition.bottom_copy || required.bottom,
+          ]);
+          pool.push({ src: imageDataUrl, score: metrics.score, metrics, variant: i + 11 });
+        }
+      }
+
+      pool.sort((a, b) => (b.score || 0) - (a.score || 0));
+      const candidates = pool.slice(0, 3);
       workspaceState.thumbnailCandidates = candidates;
       workspaceState.thumbnailSelectedIndex = 0;
       workspaceState.thumbnailDataUrl = candidates[0]?.src || "";
