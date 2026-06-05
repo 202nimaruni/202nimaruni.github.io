@@ -2993,6 +2993,7 @@ function init() {
   // AI generate (job post)
   let generatedText = "";
   let generatedAtIso = "";
+  let lastGenSource = "";
 
   const refreshGenerated = () => {
     const meta = generatedAtIso
@@ -3021,28 +3022,22 @@ function init() {
     setGeneratingOverlay(true, "生成中...");
     try {
       let out;
+      let genSource;
       if (backendUrl) {
-        try {
-          out = await generateViaBackend(d, backendUrl, activeGenerateAbortController);
-        } catch (backendErr) {
-          // バックエンド失敗時、OpenAI APIキーがあれば従来生成にフォールバック
-          if (getOpenAIApiKey()) {
-            setExportNote("バックエンド失敗のため従来生成に切替");
-            out = await generateJobPostWithAI(buildPromptText(d), {
-              outputStyle: d.outputStyle,
-              abortController: activeGenerateAbortController,
-            });
-          } else {
-            throw backendErr;
-          }
-        }
+        // backendApiUrl が設定されている場合は必ずバックエンドAPIを使う。
+        // 失敗しても旧生成へ自動フォールバックしない（品質検証のため）。
+        out = await generateViaBackend(d, backendUrl, activeGenerateAbortController);
+        genSource = "バックエンドAPI";
       } else {
+        // backendApiUrl を明示的に空にした場合のみ従来生成（後方互換）。
         out = await generateJobPostWithAI(buildPromptText(d), {
           outputStyle: d.outputStyle,
           abortController: activeGenerateAbortController,
         });
+        genSource = "従来生成";
       }
       generatedText = out;
+      lastGenSource = genSource;
       generatedAtIso = new Date().toISOString();
       refreshGenerated();
 
@@ -3060,8 +3055,8 @@ function init() {
 
       openWorkspace(generatedText);
 
-      setExportNote("生成完了。全画面で原稿を確認・修正できます");
-      setTimeout(() => setExportNote(""), 2800);
+      setExportNote(`生成完了（${lastGenSource}で生成）。全画面で原稿を確認・修正できます`);
+      setTimeout(() => setExportNote(""), 4000);
     } catch (e) {
       setExportNote(`生成失敗: ${e?.message || "不明なエラー"}`);
       setTimeout(() => setExportNote(""), 3500);
