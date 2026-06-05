@@ -1,6 +1,8 @@
 const STORAGE_KEY = "airwork_writer_history_v1";
 const SETTINGS_KEY = "airwork_writer_settings_v1";
 const AUTOSAVE_KEY = "airwork_writer_autosave_v1";
+// 既定のバックエンドAPI（設定モーダルで上書き可能。空欄ならこのURLを使用）
+const DEFAULT_BACKEND_API_URL = "https://job-posting-agent-streamlit.onrender.com/api/generate-job";
 
 function nowIso() {
   return new Date().toISOString();
@@ -2053,6 +2055,78 @@ async function generateJobPostWithAI(promptText, { outputStyle = "message", temp
   return String(content || "").trim();
 }
 
+// バックエンドAPI（Render）経由で求人本文を生成する。
+// OpenAI APIキーはフロントから送らない（サーバー側環境変数で管理）。
+async function generateViaBackend(d, backendUrl, abortController) {
+  const jobUrl = (document.getElementById("jobUrl")?.value || "").trim();
+  const body = {
+    company_name: d.companyName || "",
+    job_title: d.jobTitle || "",
+    area: d.workAddress || "",
+    source_url: jobUrl,
+    target_note: d.vibeWant || "",
+    hide_company_name_in_article: true,
+    referral_company_name: d.companyName || "",
+    additional_notes: [d.business, d.training, d.dailyFlow].filter(Boolean).join("\n"),
+    existing_fields: {
+      employmentType: d.employmentType || "",
+      salary: d.salary || "",
+      workAddress: d.workAddress || "",
+      access: d.access || "",
+      transfer: d.transfer || "",
+      fixedOvertime: d.fixedOvertime || "",
+      bonusRaise: d.bonusRaise || "",
+      workHours: d.workHours || "",
+      overtimeHours: d.overtimeHours || "",
+      holidays: d.holidays || "",
+      benefits: d.benefits || "",
+      trialPeriod: d.trialPeriod || "",
+      mainDuties: d.mainDuties || "",
+    },
+  };
+
+  const res = await fetch(backendUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: abortController?.signal,
+  });
+  if (!res.ok) throw new Error(`バックエンドAPI HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data || data.ok !== true) {
+    const msg = (data && Array.isArray(data.errors) && data.errors[0]) || "バックエンド生成に失敗しました";
+    throw new Error(msg);
+  }
+  if (Array.isArray(data.errors) && data.errors.length) {
+    setExportNote(`注意: ${data.errors[0]}`);
+  }
+  return String(data.job_post_markdown || "") +
+    buildNotesAppendix(data.unknowns, data.warnings, data.sources);
+}
+
+// 公開前確認事項・警告・参照情報を、本文と分離される注記見出し配下に整形する。
+// splitFinalTextAndNotes() が「作成時の注意ポイント」以降を投稿対象外メモへ振り分ける。
+function buildNotesAppendix(unknowns, warnings, sources) {
+  const parts = [];
+  if (Array.isArray(unknowns) && unknowns.length) {
+    parts.push("【公開前確認事項】");
+    unknowns.forEach((u) => parts.push(`・${u}`));
+  }
+  if (Array.isArray(warnings) && warnings.length) {
+    parts.push("【警告】");
+    warnings.forEach((w) => parts.push(`・${w}`));
+  }
+  if (Array.isArray(sources) && sources.length) {
+    parts.push("【参照情報】");
+    sources.forEach((s) => {
+      const used = Array.isArray(s.used_for) ? s.used_for.join("・") : "";
+      parts.push(`・${s.url || ""}${used ? `（${used}）` : ""}`);
+    });
+  }
+  if (!parts.length) return "";
+  return "\n\n作成時の注意ポイント\n" + parts.join("\n");
+}
+
 const workspaceState = {
   rawMarkdown: "",
   sections: [],
@@ -2942,14 +3016,32 @@ function init() {
       setTimeout(() => setExportNote(""), 3200);
     }, 120000);
     const d = readForm();
-    const promptText = buildPromptText(d);
+    const backendUrl = (getSettings().backendApiUrl || DEFAULT_BACKEND_API_URL).trim();
     setExportNote("AI生成中…（数秒〜）");
     setGeneratingOverlay(true, "生成中...");
     try {
-      const out = await generateJobPostWithAI(promptText, {
-        outputStyle: d.outputStyle,
-        abortController: activeGenerateAbortController,
-      });
+      let out;
+      if (backendUrl) {
+        try {
+          out = await generateViaBackend(d, backendUrl, activeGenerateAbortController);
+        } catch (backendErr) {
+          // バックエンド失敗時、OpenAI APIキーがあれば従来生成にフォールバック
+          if (getOpenAIApiKey()) {
+            setExportNote("バックエンド失敗のため従来生成に切替");
+            out = await generateJobPostWithAI(buildPromptText(d), {
+              outputStyle: d.outputStyle,
+              abortController: activeGenerateAbortController,
+            });
+          } else {
+            throw backendErr;
+          }
+        }
+      } else {
+        out = await generateJobPostWithAI(buildPromptText(d), {
+          outputStyle: d.outputStyle,
+          abortController: activeGenerateAbortController,
+        });
+      }
       generatedText = out;
       generatedAtIso = new Date().toISOString();
       refreshGenerated();
@@ -3222,11 +3314,16 @@ function init() {
   $("btnSettings").addEventListener("click", () => {
     const s = getSettings();
     $("apiKey").value = s.openaiApiKey || "";
+    if ($("backendApiUrl")) $("backendApiUrl").value = s.backendApiUrl || "";
     setSettingsNote(s.openaiApiKey ? `保存済み: ${maskKey(s.openaiApiKey)}` : "未保存");
     $("modalSettings").showModal();
   });
   $("btnSaveSettings").addEventListener("click", () => {
-    const next = { ...getSettings(), openaiApiKey: $("apiKey").value.trim() };
+    const next = {
+      ...getSettings(),
+      openaiApiKey: $("apiKey").value.trim(),
+      backendApiUrl: $("backendApiUrl") ? $("backendApiUrl").value.trim() : (getSettings().backendApiUrl || ""),
+    };
     setSettings(next);
     setSettingsNote(next.openaiApiKey ? `保存しました: ${maskKey(next.openaiApiKey)}` : "空のため保存しませんでした");
   });

@@ -363,6 +363,13 @@
               このキーはブラウザの LocalStorage に保存されます。共有PCでは入力しないでください。
             </div>
           </label>
+          <label class="field">
+            <div class="field__label">バックエンドAPI URL</div>
+            <input class="input" id="backendApiUrl" placeholder="https://job-posting-agent-streamlit.onrender.com/api/generate-job" autocomplete="off" />
+            <div class="field__hint">
+              空欄なら既定の本番APIを使用します。通常は変更不要です。
+            </div>
+          </label>
           <div class="formgrid">
             <button class="btn btn--primary" id="btnSaveSettings" type="button">保存</button>
             <button class="btn btn--ghost" id="btnClearSettings" type="button">削除</button>
@@ -436,6 +443,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260604p" defer></script>
+    <script src="./app.js?v=20260605a" defer></script>
   </body>
 </html>
